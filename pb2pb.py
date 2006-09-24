@@ -7,6 +7,7 @@ from twisted.spread import pb
 from twisted.internet import reactor
 from twisted.internet import interfaces
 from twisted.python import util
+from twisted.python import log
 
 
 class Proxy(pb.Referenceable):
@@ -51,35 +52,54 @@ class Peer(pb.Root):
     def __init__(self):
         self.peers = []
 	self.proxy_peers = []
+        self.services = []
+        self.original_bases = self.__class__.__bases__
         
     def AddPeer(self, peer):
-        self.peers.append(peer)
+        log.msg("Adding peer.", debug=1)
+        if peer not in self.peers:
+            self.peers.append(peer)
 
-    def UpdateRemotePeers(self, remote_peers=[]):
-        if not remote_peers:
-            remote_peers = self.peers
-        my_peers = self.peers[:]
-        my_peers.extend(self.proxy_peers)
-        proxies = [Proxy(p) for p in my_peers]
-        for rp in remote_peers:
-            for p in proxies:
-                rp.callRemote('AddProxyPeer', p)
+    def UpdateRemotePeers(self):
+        log.msg("Updating remote peers.", debug=1)
+        all_peers = self.peers + self.proxy_peers
+        for peer in all_peers:
+            proxy_peers = [Proxy(p) for p in all_peers if p is not peer]
+            map(lambda p: peer.callRemote('AddProxyPeer', p), proxy_peers)
+            #peer.callRemote('UpdateRemotePeers')
 
     def ExchangePeers(self, peer):
-        self.UpdateRemotePeers(remote_peers=[peer])
-        self.AddPeer(peer)
-        d = peer.callRemote('AddPeer', self)
-        d = peer.callRemote('UpdateRemotePeers', remote_peers=[self])
         # TODO(damonkohler): Add errbacks.
-        
+        d = peer.callRemote('AddPeer', self)
+        d = peer.callRemote('UpdateRemotePeers')
+        self.AddPeer(peer)
+        self.UpdateRemotePeers()
+
+    def UpdateServices(self, services_to_add=[]):
+        if services_to_add:
+            self.services.extend(services_to_add)
+        self.__class__.__bases__ = self.original_bases + tuple(self.services)
+
     def remote_AddPeer(self, peer):
         self.AddPeer(peer)
 
     def remote_AddProxyPeer(self, proxy_peer):
+        log.msg("Adding proxy peer.", debug=1)
 	self.proxy_peers.append(proxy_peer)
 
     def remote_UpdateRemotePeers(self, remote_peers=[]):
-        self.UpdateRemotePeers(remote_peers=remote_peers)
+        self.UpdateRemotePeers()
+
+
+class Chat():
+    def Say(self, msg):
+        for p in self.peers:
+            p.callRemote('Say', msg)
+        for p in self.proxy_peers:
+            p.callRemote('callProxy', 'Say', msg)
+        
+    def remote_Say(self, msg):
+        print ">%s" % msg
 
 
 def main():
@@ -91,11 +111,14 @@ def main():
     host = options.host
     port = 8790    
 
+    log.startLogging(sys.stdout)
+
     # Create our root Peer object.
     root_peer = Peer()
+    root_peer.UpdateServices(services_to_add=[Chat])
 
     # Set up reading for STDIN.
-    ci = ConsoleInput(chat)
+    ci = ConsoleInput(root_peer)
     reactor.addReader(ci)
 
     if host:
@@ -103,8 +126,7 @@ def main():
         print "Connecting to %s..." % host
         reactor.connectTCP(host, port, factory)
         d = factory.getRootObject()
-        d.addCallback(root_peer.AddPeer)
-        d.addCallback(root_peer.SendRootObject)
+        d.addCallback(root_peer.ExchangePeers)
         d.addErrback(lambda reason: "Error %s" % reason.value)
         d.addErrback(util.println)
     else:
