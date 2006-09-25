@@ -12,22 +12,6 @@ from twisted.python import util
 from twisted.python import log
 
 
-class curry:
-    def __init__(self, fun, *args, **kwargs):
-        self.fun = fun
-        self.pending = args[:]
-        self.kwargs = kwargs.copy()
-
-    def __call__(self, *args, **kwargs):
-        if kwargs and self.kwargs:
-            kw = self.kwargs.copy()
-            kw.update(kwargs)
-        else:
-            kw = kwargs or self.kwargs
-
-        return self.fun(*(self.pending + args), **kw)
-
-
 class Proxy(pb.Referenceable):
     def __init__(self, proxy_object):
 	self.proxy_object = proxy_object
@@ -40,10 +24,17 @@ class Proxy(pb.Referenceable):
                                          *args, **kwargs)
 
     def remoteMessageReceived(self, broker, msg, args, kw):
-        args = broker.unserialize(args)
+        args = list(broker.unserialize(args))
         kw = broker.unserialize(kw)
+        for i, a in enumerate(args):
+            if isinstance(a, pb.RemoteReference):
+                args[i] = Proxy(a)
+        for k, a in kw.iteritems():
+            if isinstance(a, pb.RemoteReference):
+                kw[k] = Proxy(a)
         state = self.callProxy(msg, *args, **kw)
         return broker.serialize(state, self.perspective)
+
 
 class ConsoleInput(object):
     zope.interface.implements(interfaces.IReadDescriptor)
@@ -77,14 +68,14 @@ class Peer(pb.Root):
         self.services = []
         self.original_bases = self.__class__.__bases__
         self.uuid = str(uuid.uuid4())
+        self.last_update_serial = 0
         
     def AddPeer(self, peer, uuid):
         log.msg("Adding peer %s." % uuid, debug=1)
         if uuid not in self.peers and uuid != self.uuid:
             self.peers[uuid] = peer
         
-
-    def UpdateRemotePeers(self):
+    def UpdateRemotePeers(self, update_serial=0):
         """Updates all remote peers with all currently known peers.
 
         When called locally, a new update_serial is generated and transmited
@@ -100,6 +91,9 @@ class Peer(pb.Root):
             proxy_peers = [(Proxy(p), uuid) for uuid, p in
                            self.peers.iteritems()]
             map(lambda p: peer.callRemote('AddPeer', *p), proxy_peers)
+            if not update_serial:
+                update_serial = self.last_update_serial = random.randint(0, 255)
+            peer.callRemote('UpdateRemotePeers', update_serial)
 
     def ExchangePeers(self, peer):
         # TODO(damonkohler): Add errbacks.
@@ -107,7 +101,6 @@ class Peer(pb.Root):
         d = peer.callRemote('GetUUID')
         d.addCallback(lambda uuid: self.AddPeer(peer, uuid))
         d.addCallback(lambda _: self.UpdateRemotePeers())
-        d.addCallback(lambda _: peer.callRemote('UpdateRemotePeers'))
         
     def UpdateServices(self, services_to_add=[]):
         """Services can be added through dynamicly loaded mix-ins."""
@@ -118,9 +111,11 @@ class Peer(pb.Root):
     def remote_AddPeer(self, peer, uuid):
         self.AddPeer(peer, uuid)
 
-    def remote_UpdateRemotePeers(self):
+    def remote_UpdateRemotePeers(self, update_serial):
         log.msg("Asked to update remote peers.", debug=1)
-        self.UpdateRemotePeers()
+        if update_serial != self.last_update_serial:
+            self.last_update_serial = update_serial
+            self.UpdateRemotePeers(update_serial)
 
     def remote_GetUUID(self):
         log.msg("Sending UUID.", debug=1)
@@ -138,12 +133,16 @@ class Chat():
 
 def main():
     parser = optparse.OptionParser()
-    parser.add_option('--host', dest='host', help='Host to connect to.')
+    parser.add_option('--port', dest='port', default=8790,
+                      help='Port to listen on.')
+    parser.add_option('--host', dest='host', default=':',
+                      help='Host to connect to defined as host:port.')
     options, args = parser.parse_args()
 
     # TODO(damonkohler): Validate the host string.
-    host = options.host
-    port = 8790    
+    host, connect_port = options.host.split(':')
+    connect_port = int(connect_port)
+    listen_port = int(options.port)
 
     log.startLogging(sys.stdout)
 
@@ -158,15 +157,14 @@ def main():
     if host:
         factory = pb.PBClientFactory()
         print "Connecting to %s..." % host
-        reactor.connectTCP(host, port, factory)
+        reactor.connectTCP(host, connect_port, factory)
         d = factory.getRootObject()
         d.addCallback(root_peer.ExchangePeers)
         d.addErrback(lambda reason: "Error %s" % reason.value)
         d.addErrback(util.println)
-    else:
-        print "Listening..."
-        factory = pb.PBServerFactory(root_peer)
-        reactor.listenTCP(port, factory)
+    print "Listening on %d..." % listen_port
+    factory = pb.PBServerFactory(root_peer)
+    reactor.listenTCP(listen_port, factory)
 
     reactor.run()
 
