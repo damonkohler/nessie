@@ -1,5 +1,7 @@
 import sys
 import optparse
+import random
+import uuid
 
 import zope.interface
 
@@ -10,17 +12,38 @@ from twisted.python import util
 from twisted.python import log
 
 
+class curry:
+    def __init__(self, fun, *args, **kwargs):
+        self.fun = fun
+        self.pending = args[:]
+        self.kwargs = kwargs.copy()
+
+    def __call__(self, *args, **kwargs):
+        if kwargs and self.kwargs:
+            kw = self.kwargs.copy()
+            kw.update(kwargs)
+        else:
+            kw = kwargs or self.kwargs
+
+        return self.fun(*(self.pending + args), **kw)
+
+
 class Proxy(pb.Referenceable):
     def __init__(self, proxy_object):
 	self.proxy_object = proxy_object
 
-    def remote_callProxy(self, remote_function, *args, **kwargs):
+    def callProxy(self, remote_function, *args, **kwargs):
 	if self.proxy_object.__class__.__name__ != 'Proxy':
 	    self.proxy_object.callRemote(remote_function, *args, **kwargs)
 	else:
 	    self.proxy_object.callRemote('callProxy', remote_function,
                                          *args, **kwargs)
 
+    def remoteMessageReceived(self, broker, msg, args, kw):
+        args = broker.unserialize(args)
+        kw = broker.unserialize(kw)
+        state = self.callProxy(msg, *args, **kw)
+        return broker.serialize(state, self.perspective)
 
 class ConsoleInput(object):
     zope.interface.implements(interfaces.IReadDescriptor)
@@ -50,54 +73,65 @@ class Peer(pb.Root):
     peers.
     """
     def __init__(self):
-        self.peers = []
-	self.proxy_peers = []
+        self.peers = {}
         self.services = []
         self.original_bases = self.__class__.__bases__
+        self.uuid = str(uuid.uuid4())
         
-    def AddPeer(self, peer):
-        log.msg("Adding peer.", debug=1)
-        if peer not in self.peers:
-            self.peers.append(peer)
+    def AddPeer(self, peer, uuid):
+        log.msg("Adding peer %s." % uuid, debug=1)
+        if uuid not in self.peers and uuid != self.uuid:
+            self.peers[uuid] = peer
+        
 
     def UpdateRemotePeers(self):
+        """Updates all remote peers with all currently known peers.
+
+        When called locally, a new update_serial is generated and transmited
+        with the requests for remote peers to also send out updates. Remote
+        requests to update peers only happen once per update_serial until a new
+        update_serial is received.
+
+        """
         log.msg("Updating remote peers.", debug=1)
-        all_peers = self.peers + self.proxy_peers
-        for peer in all_peers:
-            proxy_peers = [Proxy(p) for p in all_peers if p is not peer]
-            map(lambda p: peer.callRemote('AddProxyPeer', p), proxy_peers)
-            #peer.callRemote('UpdateRemotePeers')
+        log.msg(self.peers, debug=1)
+        for uuid, peer in self.peers.iteritems():
+            log.msg("..Updating remote peer.", debug=1)
+            proxy_peers = [(Proxy(p), uuid) for uuid, p in
+                           self.peers.iteritems()]
+            map(lambda p: peer.callRemote('AddPeer', *p), proxy_peers)
 
     def ExchangePeers(self, peer):
         # TODO(damonkohler): Add errbacks.
-        d = peer.callRemote('AddPeer', self)
-        d = peer.callRemote('UpdateRemotePeers')
-        self.AddPeer(peer)
-        self.UpdateRemotePeers()
-
+        d = peer.callRemote('AddPeer', self, self.uuid)
+        d = peer.callRemote('GetUUID')
+        d.addCallback(lambda uuid: self.AddPeer(peer, uuid))
+        d.addCallback(lambda _: self.UpdateRemotePeers())
+        d.addCallback(lambda _: peer.callRemote('UpdateRemotePeers'))
+        
     def UpdateServices(self, services_to_add=[]):
+        """Services can be added through dynamicly loaded mix-ins."""
         if services_to_add:
             self.services.extend(services_to_add)
         self.__class__.__bases__ = self.original_bases + tuple(self.services)
 
-    def remote_AddPeer(self, peer):
-        self.AddPeer(peer)
+    def remote_AddPeer(self, peer, uuid):
+        self.AddPeer(peer, uuid)
 
-    def remote_AddProxyPeer(self, proxy_peer):
-        log.msg("Adding proxy peer.", debug=1)
-	self.proxy_peers.append(proxy_peer)
-
-    def remote_UpdateRemotePeers(self, remote_peers=[]):
+    def remote_UpdateRemotePeers(self):
+        log.msg("Asked to update remote peers.", debug=1)
         self.UpdateRemotePeers()
 
+    def remote_GetUUID(self):
+        log.msg("Sending UUID.", debug=1)
+        return self.uuid
+    
 
 class Chat():
     def Say(self, msg):
-        for p in self.peers:
+        for p in self.peers.itervalues():
             p.callRemote('Say', msg)
-        for p in self.proxy_peers:
-            p.callRemote('callProxy', 'Say', msg)
-        
+
     def remote_Say(self, msg):
         print ">%s" % msg
 
