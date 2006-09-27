@@ -39,8 +39,8 @@ class Proxy(pb.Referenceable):
 class ConsoleInput(object):
     zope.interface.implements(interfaces.IReadDescriptor)
 
-    def __init__(self, chat):
-        self.chat = chat
+    def __init__(self, peer):
+        self.peer = peer
 
     def fileno(self):
         return 0
@@ -49,8 +49,26 @@ class ConsoleInput(object):
         print "Lost connection because %s" % reason
 
     def doRead(self):
-        self.chat.Say(sys.stdin.readline().strip())
-       
+        line = sys.stdin.readline().strip()
+        if line[0] == '/':
+            self.ParseCommand(line)
+        else:
+            self.peer.Say(line)
+
+    def ParseCommand(self, line):
+        tokens = line.split(' ')
+        command = tokens[0][1:]
+        args = tokens[1:]
+
+        method = getattr(self.peer, "client_%s" % command, None)
+        if method is None:
+            log.msg("No such command: /%s" % command)
+        else:
+            try:
+                state = method(*args)
+            except TypeError:
+                log.msg("/%s didn't accept arguments %s" % (command, args))
+        
     # TODO(damonkohler): Find out why this is necessary.
     def logPrefix(self):
         return 'ConsoleInput'
@@ -69,12 +87,33 @@ class Peer(pb.Root):
         self.original_bases = self.__class__.__bases__
         self.uuid = str(uuid.uuid4())
         self.last_update_serial = 0
-        
+
+    def IterPeers(self):
+        for uuid, peer_queue in self.peers.iteritems():
+            yield uuid, self.PickAlive(peer_queue)
+
+    def PickAlive(self, peer_queue):
+        for route in peer_queue:
+            if not route.broker.disconnected:
+                return route
+        return None
+    
     def AddPeer(self, peer, uuid):
-        log.msg("Adding peer %s." % uuid, debug=1)
-        if uuid not in self.peers and uuid != self.uuid:
-            self.peers[uuid] = peer
+        """Add a peer to the dict of peers.
+
+        Each peer is really a prioritized queue of objects representing the
+        peer with the specified UUID.
+
+        TODO(damonkohler): This function might need to be renamed since it
+        doesn't clearly indicate that we're actually adding one particular
+        route to a peer and not really just the peer itself.
         
+        """
+        log.msg("Adding peer %s." % uuid, debug=1)
+        if uuid != self.uuid:
+            if peer not in self.peers.setdefault(uuid, []):
+                self.peers[uuid].append(peer)
+    
     def UpdateRemotePeers(self, update_serial=0):
         """Updates all remote peers with all currently known peers.
 
@@ -86,11 +125,15 @@ class Peer(pb.Root):
         """
         log.msg("Updating remote peers.", debug=1)
         log.msg(self.peers, debug=1)
-        for uuid, peer in self.peers.iteritems():
+        for uuid, peer in self.IterPeers():
             log.msg("..Updating remote peer.", debug=1)
             proxy_peers = [(Proxy(p), uuid) for uuid, p in
-                           self.peers.iteritems()]
-            map(lambda p: peer.callRemote('AddPeer', *p), proxy_peers)
+                           self.IterPeers()]
+            def add_peer(uuid, proxy_peer):
+                d = peer.callRemote('AddPeer', uuid, proxy_peer)
+                d.addErrback(lambda reason: "Error %s" % reason.value)
+                d.addErrback(util.println)
+            map(lambda p: add_peer(*p), proxy_peers)
             if not update_serial:
                 update_serial = self.last_update_serial = random.randint(0, 255)
             peer.callRemote('UpdateRemotePeers', update_serial)
@@ -124,45 +167,50 @@ class Peer(pb.Root):
 
 class Chat():
     def Say(self, msg):
-        for p in self.peers.itervalues():
-            p.callRemote('Say', msg)
-
+        for uuid, p in self.IterPeers():
+            if p is not None:
+                d = p.callRemote('Say', msg)
+                d.addErrback(lambda reason: "Error %s" % reason.value)
+                d.addErrback(util.println)
+            
     def remote_Say(self, msg):
         print ">%s" % msg
 
+
+class ClientCommands():
+    def client_connect(self, host, port):
+        # TODO(damonkohler): Proper parameter validation.
+        port = int(port)
+
+        factory = pb.PBClientFactory()
+        log.msg("Connecting to %s:%s..." % (host, port))
+        reactor.connectTCP(host, port, factory)
+
+        d = factory.getRootObject()
+        d.addCallback(self.ExchangePeers)
+        d.addErrback(lambda reason: "Error %s" % reason.value)
+        d.addErrback(util.println)
+        
 
 def main():
     parser = optparse.OptionParser()
     parser.add_option('--port', dest='port', default=8790,
                       help='Port to listen on.')
-    parser.add_option('--host', dest='host', default=':',
-                      help='Host to connect to defined as host:port.')
     options, args = parser.parse_args()
 
-    # TODO(damonkohler): Validate the host string.
-    host, connect_port = options.host.split(':')
-    connect_port = int(connect_port)
     listen_port = int(options.port)
 
     log.startLogging(sys.stdout)
 
     # Create our root Peer object.
     root_peer = Peer()
-    root_peer.UpdateServices(services_to_add=[Chat])
+    root_peer.UpdateServices(services_to_add=[Chat, ClientCommands])
 
     # Set up reading for STDIN.
     ci = ConsoleInput(root_peer)
     reactor.addReader(ci)
 
-    if host:
-        factory = pb.PBClientFactory()
-        print "Connecting to %s..." % host
-        reactor.connectTCP(host, connect_port, factory)
-        d = factory.getRootObject()
-        d.addCallback(root_peer.ExchangePeers)
-        d.addErrback(lambda reason: "Error %s" % reason.value)
-        d.addErrback(util.println)
-    print "Listening on %d..." % listen_port
+    log.msg("Listening on %d..." % listen_port)
     factory = pb.PBServerFactory(root_peer)
     reactor.listenTCP(listen_port, factory)
 
