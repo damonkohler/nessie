@@ -2,6 +2,7 @@ import sys
 import optparse
 import random
 import uuid
+import operator
 
 import zope.interface
 
@@ -35,6 +36,17 @@ class Proxy(pb.Referenceable):
         state = self.callProxy(msg, *args, **kw)
         return broker.serialize(state, self.perspective)
 
+
+class PeerProxy(Proxy):
+    def __init__(self, uuid, peer_routes):
+        self.peer_routes = peer_routes
+        self.uuid = uuid
+
+    def callProxy(self, remote_function, *args, **kwargs):
+        # REFACTOR(damonkohler): Create a router object to get the route from.
+        # With it like this, I'd have to rewrite the CheckAlive method.
+        self.proxy_object = self.peer_routes[0]
+        Proxy.callProxy(self, remote_function, *args, **kwargs)
 
 class ConsoleInput(object):
     zope.interface.implements(interfaces.IReadDescriptor)
@@ -89,14 +101,23 @@ class Peer(pb.Root):
         self.last_update_serial = 0
 
     def IterPeers(self):
-        for uuid, peer_queue in self.peers.iteritems():
-            yield uuid, self.PickAlive(peer_queue)
+        for uuid in self.peers.iterkeys():
+            peer = self.PickAlive(uuid)
+            if peer is not None:
+                yield uuid, peer
+            else:
+                del self.peers[uuid]
 
-    def PickAlive(self, peer_queue):
-        for route in peer_queue:
-            if not route.broker.disconnected:
+    def PickAlive(self, uuid):
+        for i, route in enumerate(self.peers[uuid]):
+            if self.CheckAlive(route):
                 return route
+            else:
+                del self.peers[uuid][i]
         return None
+
+    def CheckAlive(self, peer):
+        return not peer.broker.disconnected
     
     def AddPeer(self, peer, uuid):
         """Add a peer to the dict of peers.
@@ -127,8 +148,8 @@ class Peer(pb.Root):
         log.msg(self.peers, debug=1)
         for uuid, peer in self.IterPeers():
             log.msg("..Updating remote peer.", debug=1)
-            proxy_peers = [(Proxy(p), uuid) for uuid, p in
-                           self.IterPeers()]
+            proxy_peers = [(PeerProxy(uuid, p), uuid) for uuid, p in
+                           self.peers.iteritems()]
             def add_peer(uuid, proxy_peer):
                 d = peer.callRemote('AddPeer', uuid, proxy_peer)
                 d.addErrback(lambda reason: "Error %s" % reason.value)
@@ -166,17 +187,68 @@ class Peer(pb.Root):
     
 
 class Chat():
+    chat_file = sys.stdout
+    chat_format = '>%s'
+    
     def Say(self, msg):
         for uuid, p in self.IterPeers():
-            if p is not None:
-                d = p.callRemote('Say', msg)
-                d.addErrback(lambda reason: "Error %s" % reason.value)
-                d.addErrback(util.println)
-            
+            d = p.callRemote('Say', msg)
+            d.addErrback(lambda reason: "Error %s" % reason.value)
+            d.addErrback(util.println)
+
+    def _SayToFile(self, msg, file):
+        file.write(self.chat_format % msg)
+        
     def remote_Say(self, msg):
-        print ">%s" % msg
+        self._SayToFile(msg, self.chat_file)
 
 
+class Ping():
+    def remote_Ping(self):
+        return time.time()
+
+    def _Ping(self, peer):
+        start_time = time.time()
+        d = peer.callRemote('ping')
+        d.addCallback(lambda end_time: end_time - start_time)
+        d.addErrback(lambda reason: "Ping failed: %s" % reason.value)
+        return d
+
+    def PingPeer(self, peer):
+        if self.CheckAlive(peer):
+            return self._Ping(peer)
+        else:
+            return None
+
+    def PingUUID(self, uuid):
+        """Ping a peer.
+
+        Returns a defered that will return with a ping time or None if the
+        host is unreachable.
+        """
+        peer = self.PickAlive(uuid)
+        if peer is not None:
+            return self._Ping(peer)
+        else:
+            return None
+
+    def UpdateRouteLatencies(self):
+        # TODO(damonkohler): Return a deferred that fires when all the ping
+        # deferreds have finished. Can be used to then sort routes by latency.
+        for uuid, routes in self.peers.iteritems():
+            for route in routes:
+                if CheckAlive(route):
+                    d = self.PingPeer(route)
+                    d.addCallback(lambda latency:
+                                  self._UpdateRouteLatency(route, latency))
+
+    def _UpdateRouteLatency(self, route, latency):
+        route.latency = latency
+
+    def LatencySortRoutes(self):
+        for uuid, routes in self.peers.iteritems():
+            routes.sort(key=operator.__attrgetter__('latency'))
+        
 class ClientCommands():
     def client_connect(self, host, port):
         # TODO(damonkohler): Proper parameter validation.
@@ -204,7 +276,7 @@ def main():
 
     # Create our root Peer object.
     root_peer = Peer()
-    root_peer.UpdateServices(services_to_add=[Chat, ClientCommands])
+    root_peer.UpdateServices(services_to_add=[Chat, ClientCommands, Ping])
 
     # Set up reading for STDIN.
     ci = ConsoleInput(root_peer)
