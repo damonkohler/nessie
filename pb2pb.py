@@ -101,7 +101,7 @@ class Peer(pb.Root):
         self.last_update_serial = 0
 
     def IterPeers(self):
-        for uuid in self.peers.iterkeys():
+        for uuid in self.peers.keys():
             peer = self.PickAlive(uuid)
             if peer is not None:
                 yield uuid, peer
