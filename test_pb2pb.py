@@ -72,10 +72,6 @@ class TestPeerProxy(unittest.TestCase):
     pass
 
 
-class TestConsoleInput(unittest.TestCase):
-    pass
-
-
 class MockFile(object):
     def __init__(self, results):
         self.results = results
@@ -88,23 +84,20 @@ class TestChat(unittest.TestCase):
     def test_remote_Say(self):
         msg = 'Hello World!'
         results = []
-        pb2pb.Chat.chat_file = MockFile(results)
         chat = pb2pb.Chat()
+        chat.chat_file = MockFile(results)
         chat.remote_Say(msg)
         self.assertEqual([chat.chat_format % msg], results)
         
     def test_SayToFile(self):
         msg = 'Hello World!'
         results = []
-        chat_file = MockFile(results)
         chat = pb2pb.Chat()
-        chat._SayToFile(msg, chat_file)
+        chat.chat_file = MockFile(results)
+        chat._SayToFile(msg)
         self.assertEqual([chat.chat_format % msg], results)
 
 
 class TestPing(unittest.TestCase):
     pass
 
-
-class TestClientCommands(unittest.TestCase):
-    pass
