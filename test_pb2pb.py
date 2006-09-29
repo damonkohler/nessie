@@ -49,7 +49,20 @@ class TestPeer(unittest.TestCase):
         self.assertEqual(p.CheckAlive(mp), True)
         mp.broker.disconnected = 1
         self.assertEqual(p.CheckAlive(mp), False)
-    
+
+    def testAddFirstPeer(self):
+        pass
+
+    def testAddAdditionalPeers(self):
+        pass
+
+    def test_remote_GetUUID(self):
+        p = pb2pb.Peer()
+        self.assertEqual(p.remote_GetUUID(), p.uuid)
+
+    def testUpdateServices(self):
+        pass
+
 
 class TestProxy(unittest.TestCase):
     pass

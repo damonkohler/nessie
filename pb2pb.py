@@ -48,6 +48,7 @@ class PeerProxy(Proxy):
         self.proxy_object = self.peer_routes[0]
         Proxy.callProxy(self, remote_function, *args, **kwargs)
 
+
 class ConsoleInput(object):
     zope.interface.implements(interfaces.IReadDescriptor)
 
@@ -248,7 +249,8 @@ class Ping():
     def LatencySortRoutes(self):
         for uuid, routes in self.peers.iteritems():
             routes.sort(key=operator.__attrgetter__('latency'))
-        
+
+
 class ClientCommands():
     def client_connect(self, host, port):
         # TODO(damonkohler): Proper parameter validation.
