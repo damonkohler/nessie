@@ -1,21 +1,13 @@
 from twisted.trial import unittest
 
 import nessie
-
-
-class MockInputFile(object):
-    lines = []
-
-    def readline(self):
-        return self.lines.pop()
-
-
-class MockPeer(object): pass
+import mocks
 
 
 class TestConsoleInput(unittest.TestCase):
     def test_doReadEmptyString(self):
-       ci = nessie.ConsoleInput(MockPeer())
-       ci.input_file = MockInputFile()
-       ci.input_file.lines = ['\n']
+       ci = nessie.ConsoleInput(mocks.MockPeer())
+       mf = mocks.MockFile()
+       mf.read_lines = ['\n']
+       ci.input_file = mf
        self.assertEqual(ci.doRead(), None)

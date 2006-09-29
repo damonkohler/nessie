@@ -1,15 +1,7 @@
 from twisted.trial import unittest
 
 import pb2pb
-
-
-class MockRemotePeer(object):
-    def __init__(self):
-        self.broker = MockBroker()
-
-
-class MockBroker(object):
-    disconnected = 0
+import mocks
 
 
 class TestPeer(unittest.TestCase):
@@ -18,7 +10,7 @@ class TestPeer(unittest.TestCase):
         p.peers = {0: [], 1: [], 2: []}
         for uuid, routes in p.peers.iteritems():
             for i in range(len(p.peers)):
-                p.peers[uuid].append(MockRemotePeer())
+                p.peers[uuid].append(mocks.MockRemotePeer())
             p.peers[uuid][uuid].broker.disconnected = 1
         return p
 
@@ -45,7 +37,7 @@ class TestPeer(unittest.TestCase):
 
     def testCheckAlive(self):
         p = pb2pb.Peer()
-        mp = MockRemotePeer()
+        mp = mocks.MockRemotePeer()
         self.assertEqual(p.CheckAlive(mp), True)
         mp.broker.disconnected = 1
         self.assertEqual(p.CheckAlive(mp), False)
@@ -72,30 +64,22 @@ class TestPeerProxy(unittest.TestCase):
     pass
 
 
-class MockFile(object):
-    def __init__(self, results):
-        self.results = results
-
-    def write(self, msg):
-        self.results.append(msg)
-
-
 class TestChat(unittest.TestCase):
     def test_remote_Say(self):
         msg = 'Hello World!'
-        results = []
+        mf = mocks.MockFile()
         chat = pb2pb.Chat()
-        chat.chat_file = MockFile(results)
+        chat.chat_file = mf
         chat.remote_Say(msg)
-        self.assertEqual([chat.chat_format % msg], results)
+        self.assertEqual([chat.chat_format % msg], mf.write_lines)
         
     def test_SayToFile(self):
         msg = 'Hello World!'
-        results = []
+        mf = mocks.MockFile()
         chat = pb2pb.Chat()
-        chat.chat_file = MockFile(results)
+        chat.chat_file = mf
         chat._SayToFile(msg)
-        self.assertEqual([chat.chat_format % msg], results)
+        self.assertEqual([chat.chat_format % msg], mf.write_lines)
 
 
 class TestPing(unittest.TestCase):
