@@ -43,17 +43,23 @@ class TestPeer(unittest.TestCase):
         self.assertEqual(p.CheckAlive(mp), False)
 
     def testAddFirstPeer(self):
-        pass
+        self.fail()
+
+    testAddFirstPeer.todo = 'todo'
 
     def testAddAdditionalPeers(self):
-        pass
+        self.fail()
+
+    testAddAdditionalPeers.todo = 'todo'
 
     def test_remote_GetUUID(self):
         p = pb2pb.Peer()
         self.assertEqual(p.remote_GetUUID(), p.uuid)
 
     def testUpdateServices(self):
-        pass
+        self.fail()
+
+    testUpdateServices.todo = 'todo'
 
 
 class TestProxy(unittest.TestCase):
