@@ -2,8 +2,10 @@ import sys
 import random
 import uuid
 import operator
+import time
 
 from twisted.spread import pb
+from twisted.internet import defer
 from twisted.python import util
 from twisted.python import log
 
@@ -66,6 +68,14 @@ class Peer(pb.Root):
             else:
                 del self.peers[uuid]
 
+    def IterDirectPeers(self):
+        for uuid in self.peers.keys():
+            peer = self.PickAlive(uuid)
+            if peer is not None:
+                yield uuid, peer
+            else:
+                del self.peers[uuid]        
+
     def PickAlive(self, uuid):
         for i, route in enumerate(self.peers[uuid]):
             if self.CheckAlive(route):
@@ -108,21 +118,30 @@ class Peer(pb.Root):
             log.msg("..Updating remote peer.", debug=1)
             proxy_peers = [(PeerProxy(uuid, p), uuid) for uuid, p in
                            self.peers.iteritems()]
-            def add_peer(uuid, proxy_peer):
+            dl = []
+            for uuid, proxy_peer in proxy_peers:
                 d = peer.callRemote('AddPeer', uuid, proxy_peer)
                 d.addErrback(lambda reason: "Error %s" % reason.value)
                 d.addErrback(util.println)
-            map(lambda p: add_peer(*p), proxy_peers)
+                dl.append(d)
             if not update_serial:
                 update_serial = self.last_update_serial = random.randint(0, 255)
-            peer.callRemote('UpdateRemotePeers', update_serial)
+            d = peer.callRemote('UpdateRemotePeers', update_serial)
+            dl.append(d)
+        return defer.DeferredList(dl)
 
     def ExchangePeers(self, peer):
+        dl = []
         # TODO(damonkohler): Add errbacks.
-        d = peer.callRemote('AddPeer', self, self.uuid)
+        dl.append(peer.callRemote('AddPeer', self, self.uuid))
         d = peer.callRemote('GetUUID')
-        d.addCallback(lambda uuid: self.AddPeer(peer, uuid))
+        def add_peer(uuid):
+            self.AddPeer(peer, uuid)
+            #self.AddConnection(peer, uuid)
+        d.addCallback(add_peer)
         d.addCallback(lambda _: self.UpdateRemotePeers())
+        dl.append(d)
+        return defer.DeferredList(dl)
         
     def UpdateServices(self, services_to_add=[]):
         """Services can be added through dynamicly loaded mix-ins."""
@@ -162,12 +181,14 @@ class Chat():
 
 
 class Ping():
+    time_module = time
+    
     def remote_Ping(self):
-        return time.time()
+        return self.time_module.time()
 
     def _Ping(self, peer):
-        start_time = time.time()
-        d = peer.callRemote('ping')
+        start_time = self.time_module.time()
+        d = peer.callRemote('Ping')
         d.addCallback(lambda end_time: end_time - start_time)
         d.addErrback(lambda reason: "Ping failed: %s" % reason.value)
         return d

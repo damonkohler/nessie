@@ -1,10 +1,31 @@
 from twisted.trial import unittest
+from twisted.internet import reactor, defer
+from twisted.spread import pb
+from twisted.python import util
+from twisted.python import log
 
 import pb2pb
 import mocks
+from curry import curry
 
+
+WHAT_TIME = 42
+
+
+class PeerTesting():
+    """Testing service for peers."""
+    def Connect(self, port):
+        factory = pb.PBClientFactory()
+        self.factory = factory
+        self.connector = reactor.connectTCP('localhost', port, factory)
+        d = factory.getRootObject()
+        d.addCallback(self.ExchangePeers)
+        return d
 
 class TestPeer(unittest.TestCase):
+    def setUp(self):
+        pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
+
     def _GetPeerForTesting(self):
         p = pb2pb.Peer()
         p.peers = {0: [], 1: [], 2: []}
@@ -61,6 +82,79 @@ class TestPeer(unittest.TestCase):
 
     testUpdateServices.todo = 'todo'
 
+    def _SetUpServer(self, port):
+        root_peer = pb2pb.Peer()
+        root_peer.UpdateServices([PeerTesting, pb2pb.Ping])
+        factory = pb.PBServerFactory(root_peer)
+        root_peer.listener = reactor.listenTCP(port, factory)
+        return root_peer
+
+    def testSimpleNetwork(self):
+        alice_port = 8790
+        alice = self._SetUpServer(alice_port)
+        bob_port = 8791
+        bob = self._SetUpServer(bob_port)
+        d = alice.Connect(bob_port)
+        def assert_connects(unused_arg):
+            self.assertEqual(len(alice.peers), 1)
+            self.assertEqual(len(bob.peers), 1)
+            log.msg("Alice's peers are %s" % alice.peers, debug=1)
+            log.msg("Bob's peers are %s" % bob.peers, debug=1)
+            self.assert_(bob.uuid in alice.peers)
+            self.assert_(alice.uuid in bob.peers)
+        d.addCallback(assert_connects)
+        d.addCallback(lambda _: self.PingTestPeers([alice, bob]))
+        d.addCallback(lambda _: self.CleanUpPeers([alice, bob]))
+        return d
+            
+    def _ConnectStarNetwork(self, hub_port, spoke_peers):
+        dl = []
+        for peer in spoke_peers:
+            dl.append(peer.Connect(hub_port))
+        return defer.DeferredList(dl)
+
+    def testStarNetwork(self):
+        hub_port = 8790
+        peer_ports = range(8791, 8794)
+        hub_peer = self._SetUpServer(hub_port)
+        spoke_peers = [self._SetUpServer(port) for port in peer_ports]
+        d = self._ConnectStarNetwork(hub_port, spoke_peers)
+        def assert_connects(unused_arg):
+            self.assertEqual(len(hub_peer.peers), len(peer_ports))
+            for p in spoke_peers:
+                self.assertEqual(len(p.peers), len(peer_ports),
+                                 'Peer %s only has connections to peers %s.' %
+                                 (p.uuid, p.peers.keys()))
+        d.addCallback(assert_connects)
+        d.addCallback(lambda _: self.PingTestPeers([hub_peer] + spoke_peers))
+        d.addCallback(lambda _: self.CleanUpPeers([hub_peer] + spoke_peers))
+        return d
+
+    # TODO(damonkohler): Re-enable this after fixing peer updates to not
+    # generate so many useless routes. Should make it easier to debug.
+    testStarNetwork.skip = 1
+
+    def PingTestPeers(self, root_peers):
+        dl = []
+        for rp in root_peers:
+            for uuid, routes in rp.peers.iteritems():
+                for r in routes:
+                    log.msg('Pinging peer %s from peer %s' % (uuid, rp.uuid),
+                            debug=1)
+                    d = rp.PingPeer(r)
+                    d.addCallback(curry(self.assertEqual, 0))
+                    dl.append(d)
+        return defer.DeferredList(dl)
+
+    def CleanUpPeers(self, root_peers):
+        dl = []
+        for rp in root_peers:
+            dl.append(rp.listener.stopListening())
+            for peers in rp.peers.itervalues():
+                for p in peers:
+                    p.broker.transport.loseConnection()
+        return defer.DeferredList(dl)
+
 
 class TestProxy(unittest.TestCase):
     pass
@@ -89,5 +183,21 @@ class TestChat(unittest.TestCase):
 
 
 class TestPing(unittest.TestCase):
-    pass
+    def setUp(self):
+        pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
+        self.ping = pb2pb.Peer()
+        self.ping.UpdateServices([pb2pb.Ping])
 
+    def test_remote_Ping(self):
+        self.assertEqual(self.ping.remote_Ping(), WHAT_TIME)
+
+    def testPingPeer(self):
+        peer = mocks.MockRemotePeer()
+        peer.deferred.callback(WHAT_TIME + 1)
+        d = self.ping.PingPeer(peer)
+        d.addCallback(curry(self.assertEqual, 1))
+
+    def testPingUUID(self):
+       self.fail()
+
+    testPingUUID.todo = 'todo'

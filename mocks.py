@@ -1,6 +1,15 @@
+from twisted.internet import defer
+
+
 class MockRemotePeer(object):
     def __init__(self):
         self.broker = MockBroker()
+        self.remote_calls = []
+        self.deferred = defer.Deferred()
+
+    def callRemote(self, *args, **kwargs):
+        self.remote_calls.append((args, kwargs))
+        return self.deferred
 
 
 class MockBroker(object):
@@ -26,3 +35,10 @@ class MockFile(object):
 
 
 class MockPeer(object): pass
+
+class MockTime(object):
+    def __init__(self, what_time):
+        self.what_time = what_time
+
+    def time(self):
+        return self.what_time
