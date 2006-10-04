@@ -22,6 +22,7 @@ class PeerTesting():
         d.addCallback(self.ExchangePeers)
         return d
 
+
 class TestPeer(unittest.TestCase):
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
@@ -63,16 +64,6 @@ class TestPeer(unittest.TestCase):
         mp.broker.disconnected = 1
         self.assertEqual(p.CheckAlive(mp), False)
 
-    def testAddFirstPeer(self):
-        self.fail()
-
-    testAddFirstPeer.todo = 'todo'
-
-    def testAddAdditionalPeers(self):
-        self.fail()
-
-    testAddAdditionalPeers.todo = 'todo'
-
     def test_remote_GetUUID(self):
         p = pb2pb.Peer()
         self.assertEqual(p.remote_GetUUID(), p.uuid)
@@ -89,10 +80,32 @@ class TestPeer(unittest.TestCase):
         root_peer.listener = reactor.listenTCP(port, factory)
         return root_peer
 
-    def testSimpleNetwork(self):
-        alice_port = 8790
+    def test_GiveProxyPeers(self):
+        alice_port, bob_port = 8790, 8791
+        cindy_port, dave_port = 8792, 8793
+        dl = []
+        alice, bob, d = self._SetUpAliceAndBob(alice_port=alice_port,
+                                               bob_port=bob_port)
+        dl.append(d)
+        cindy, dave, d = self._SetUpAliceAndBob(alice_port=cindy_port,
+                                                bob_port=dave_port)
+        dl.append(d)
+        d = defer.DeferredList(dl)
+        d.addCallback(lambda _: cindy.Connect(alice_port))
+        d.addCallback(lambda _: dave.Connect(alice_port))        
+        d.addCallback(lambda _: alice._GiveProxyPeers(alice.peers[bob.uuid][0]))
+        def do_asserts(unused_arg):
+            self.assertEqual(len(alice.peers), len(bob.peers))
+        d.addCallback(do_asserts)
+        d.addCallback(lambda _: self.CleanUpPeers([alice, bob, cindy, dave]))
+        return d
+
+    def _SetUpAliceAndBob(self, alice_port=8790, bob_port=8791):
+        """Sets up two connected peers.
+
+        Also, asserts that the connection was successful.
+        """
         alice = self._SetUpServer(alice_port)
-        bob_port = 8791
         bob = self._SetUpServer(bob_port)
         d = alice.Connect(bob_port)
         def assert_connects(unused_arg):
@@ -103,6 +116,16 @@ class TestPeer(unittest.TestCase):
             self.assert_(bob.uuid in alice.peers)
             self.assert_(alice.uuid in bob.peers)
         d.addCallback(assert_connects)
+        return alice, bob, d
+
+    def testSimpleNetwork(self):
+        """Tests a simple network betwen Alice and Bob.
+
+        This also directly tests ExchangePeers through the PeerTesting service
+        Conenct method.
+        """
+        alice, bob, d = self._SetUpAliceAndBob()
+        d.addCallback(lambda _: alice.UpdateRemotePeers())
         d.addCallback(lambda _: self.PingTestPeers([alice, bob]))
         d.addCallback(lambda _: self.CleanUpPeers([alice, bob]))
         return d

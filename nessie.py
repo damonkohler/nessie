@@ -66,6 +66,7 @@ class ClientCommands():
 
         d = factory.getRootObject()
         d.addCallback(self.ExchangePeers)
+        d.addCallback(lambda _: self.UpdateRemotePeers())
         d.addErrback(lambda reason: "Error %s" % reason.value)
         d.addErrback(util.println)
         

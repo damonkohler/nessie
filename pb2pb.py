@@ -55,6 +55,7 @@ class Peer(pb.Root):
     """
     def __init__(self):
         self.peers = {}
+        self.direct_peers = {}
         self.services = []
         self.original_bases = self.__class__.__bases__
         self.uuid = str(uuid.uuid4())
@@ -67,14 +68,6 @@ class Peer(pb.Root):
                 yield uuid, peer
             else:
                 del self.peers[uuid]
-
-    def IterDirectPeers(self):
-        for uuid in self.peers.keys():
-            peer = self.PickAlive(uuid)
-            if peer is not None:
-                yield uuid, peer
-            else:
-                del self.peers[uuid]        
 
     def PickAlive(self, uuid):
         for i, route in enumerate(self.peers[uuid]):
@@ -113,35 +106,47 @@ class Peer(pb.Root):
 
         """
         log.msg("Updating remote peers.", debug=1)
-        log.msg(self.peers, debug=1)
-        for uuid, peer in self.IterPeers():
-            log.msg("..Updating remote peer.", debug=1)
-            proxy_peers = [(PeerProxy(uuid, p), uuid) for uuid, p in
-                           self.peers.iteritems()]
-            dl = []
-            for uuid, proxy_peer in proxy_peers:
-                d = peer.callRemote('AddPeer', uuid, proxy_peer)
-                d.addErrback(lambda reason: "Error %s" % reason.value)
-                d.addErrback(util.println)
-                dl.append(d)
+        dl = []
+        for uuid, peer in self.direct_peers.iteritems():
+            d = self._GiveProxyPeers(peer)
             if not update_serial:
                 update_serial = self.last_update_serial = random.randint(0, 255)
-            d = peer.callRemote('UpdateRemotePeers', update_serial)
+            def push_update(unused_arg):
+                peer.callRemote('UpdateRemotePeers', update_serial)
+            d.addCallback(push_update)
             dl.append(d)
         return defer.DeferredList(dl)
 
+    def _GiveProxyPeers(self, peer):
+        """Gives ProxyPeer objects of all peers to a remote peer."""
+        # TODO(damonkohler): Currently this adds proxies everytime update is
+        # called. Really, only new routes should be added. Need someway to
+        # identify unique routes.
+        proxy_peers = [(PeerProxy(uuid, p), uuid) for uuid, p in
+                       self.IterPeers()]
+        dl = []
+        for uuid, proxy_peer in proxy_peers:
+            d = peer.callRemote('AddPeer', uuid, proxy_peer)
+            d.addErrback(lambda reason: "Error %s" % reason.value)
+            d.addErrback(util.println)
+            dl.append(d)
+        d = defer.DeferredList(dl)
+        return d
+    
     def ExchangePeers(self, peer):
         dl = []
         # TODO(damonkohler): Add errbacks.
         dl.append(peer.callRemote('AddPeer', self, self.uuid))
         d = peer.callRemote('GetUUID')
         def add_peer(uuid):
-            self.AddPeer(peer, uuid)
-            #self.AddConnection(peer, uuid)
+            # The peer is added as a direct connection. No other routes to this
+            # peer should be used or stored. So, we use an immutable tuple.
+            self.peers[uuid] = (peer,)
+            self.direct_peers[uuid] = peer
         d.addCallback(add_peer)
-        d.addCallback(lambda _: self.UpdateRemotePeers())
         dl.append(d)
-        return defer.DeferredList(dl)
+        d = defer.DeferredList(dl)
+        return d
         
     def UpdateServices(self, services_to_add=[]):
         """Services can be added through dynamicly loaded mix-ins."""
@@ -153,6 +158,9 @@ class Peer(pb.Root):
         self.AddPeer(peer, uuid)
 
     def remote_UpdateRemotePeers(self, update_serial):
+        # TODO(damonkohler): If I were using Avatars and views I would know
+        # who called me and I could avoid sending them updates. This is a good
+        # idea because I obviously won't know anything more than they do.
         log.msg("Asked to update remote peers.", debug=1)
         if update_serial != self.last_update_serial:
             self.last_update_serial = update_serial
