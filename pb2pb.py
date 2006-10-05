@@ -11,6 +11,7 @@ from twisted.python import log
 
 
 class Proxy(pb.Referenceable):
+    """Support for third-party references is provided through proxy objects."""
     def __init__(self, proxy_object):
 	self.proxy_object = proxy_object
 
@@ -35,6 +36,7 @@ class Proxy(pb.Referenceable):
 
 
 class PeerProxy(Proxy):
+    """Wraps proxy objects for peers to add on-the-fly routing capabilities."""
     def __init__(self, uuid, peer_routes):
         self.peer_routes = peer_routes
         self.uuid = uuid
@@ -52,14 +54,16 @@ class Peer(pb.Root):
     This is the first object exchanged when a connection takes place. It is
     used to facilitate initial communication and store connections to other
     peers.
+    
     """
     def __init__(self):
         self.peers = {}
-        self.direct_peers = {}
         self.services = []
         self.original_bases = self.__class__.__bases__
         self.uuid = str(uuid.uuid4())
         self.last_update_serial = 0
+        self.listeners = []
+        self.connectors = []
 
     def IterPeers(self):
         for uuid in self.peers.keys():
@@ -68,6 +72,12 @@ class Peer(pb.Root):
                 yield uuid, peer
             else:
                 del self.peers[uuid]
+
+    def IterDirectPeers(self):
+        direct_peers = [(uuid, p[0]) for (uuid, p) in self.peers.iteritems()
+                        if p[0].direct]
+        for uuid, peer in direct_peers:
+            yield uuid, peer
 
     def PickAlive(self, uuid):
         for i, route in enumerate(self.peers[uuid]):
@@ -80,7 +90,7 @@ class Peer(pb.Root):
     def CheckAlive(self, peer):
         return not peer.broker.disconnected
     
-    def AddPeer(self, peer, uuid):
+    def AddPeer(self, uuid, peer, direct=False):
         """Add a peer to the dict of peers.
 
         Each peer is really a prioritized queue of objects representing the
@@ -92,10 +102,11 @@ class Peer(pb.Root):
         
         """
         log.msg("Adding peer %s." % uuid, debug=1)
+        peer.direct = direct
         if uuid != self.uuid:
             if peer not in self.peers.setdefault(uuid, []):
                 self.peers[uuid].append(peer)
-    
+
     def UpdateRemotePeers(self, update_serial=0):
         """Updates all remote peers with all currently known peers.
 
@@ -106,13 +117,16 @@ class Peer(pb.Root):
 
         """
         log.msg("Updating remote peers.", debug=1)
+        if not update_serial:
+            update_serial = self.last_update_serial = random.randint(0, 255)
         dl = []
-        for uuid, peer in self.direct_peers.iteritems():
+        for uuid, peer in self.IterDirectPeers():
+            log.msg("..Operating on direct peer %s" % uuid, debug=1)
+            log.msg("....Updating peer.", debug=1)
             d = self._GiveProxyPeers(peer)
-            if not update_serial:
-                update_serial = self.last_update_serial = random.randint(0, 255)
             def push_update(unused_arg):
-                peer.callRemote('UpdateRemotePeers', update_serial)
+                log.msg("....Pushing update.", debug=1)
+                return peer.callRemote('UpdateRemotePeers', update_serial)
             d.addCallback(push_update)
             dl.append(d)
         return defer.DeferredList(dl)
@@ -122,8 +136,8 @@ class Peer(pb.Root):
         # TODO(damonkohler): Currently this adds proxies everytime update is
         # called. Really, only new routes should be added. Need someway to
         # identify unique routes.
-        proxy_peers = [(PeerProxy(uuid, p), uuid) for uuid, p in
-                       self.IterPeers()]
+        proxy_peers = [(uuid, PeerProxy(uuid, p)) for uuid, p in
+                       self.peers.iteritems()]
         dl = []
         for uuid, proxy_peer in proxy_peers:
             d = peer.callRemote('AddPeer', uuid, proxy_peer)
@@ -136,13 +150,13 @@ class Peer(pb.Root):
     def ExchangePeers(self, peer):
         dl = []
         # TODO(damonkohler): Add errbacks.
-        dl.append(peer.callRemote('AddPeer', self, self.uuid))
+        # TODO(damonkohler): Direct peers are not being added on the remote
+        # side during a root peer exchange. They should be!
+        dl.append(peer.callRemote('AddPeer', self.uuid, self, direct=True))
         d = peer.callRemote('GetUUID')
         def add_peer(uuid):
-            # The peer is added as a direct connection. No other routes to this
-            # peer should be used or stored. So, we use an immutable tuple.
-            self.peers[uuid] = (peer,)
-            self.direct_peers[uuid] = peer
+            peer.direct = True
+            self.peers[uuid] = [peer]
         d.addCallback(add_peer)
         dl.append(d)
         d = defer.DeferredList(dl)
@@ -154,17 +168,21 @@ class Peer(pb.Root):
             self.services.extend(services_to_add)
         self.__class__.__bases__ = self.original_bases + tuple(self.services)
 
-    def remote_AddPeer(self, peer, uuid):
-        self.AddPeer(peer, uuid)
+    def remote_AddPeer(self, uuid, peer, direct=False):
+        self.AddPeer(uuid, peer, direct=direct)
 
     def remote_UpdateRemotePeers(self, update_serial):
         # TODO(damonkohler): If I were using Avatars and views I would know
         # who called me and I could avoid sending them updates. This is a good
         # idea because I obviously won't know anything more than they do.
-        log.msg("Asked to update remote peers.", debug=1)
+        log.msg("Asked to do update #%d of remote peers." % update_serial,
+                debug=1)
         if update_serial != self.last_update_serial:
             self.last_update_serial = update_serial
             self.UpdateRemotePeers(update_serial)
+        else:
+            log.msg("Already did update #%d. Skipped." % update_serial,
+                    debug=1)
 
     def remote_GetUUID(self):
         log.msg("Sending UUID.", debug=1)
@@ -192,6 +210,7 @@ class Ping():
     time_module = time
     
     def remote_Ping(self):
+        log.msg("Peer %s responding to ping." % self.uuid, debug=1)
         return self.time_module.time()
 
     def _Ping(self, peer):
@@ -202,6 +221,7 @@ class Ping():
         return d
 
     def PingPeer(self, peer):
+        log.msg("Sending ping.", debug=1)
         if self.CheckAlive(peer):
             return self._Ping(peer)
         else:
