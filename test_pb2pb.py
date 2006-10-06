@@ -11,8 +11,6 @@ from curry import curry
 
 WHAT_TIME = 42
 
-# TODO(damonkohler): Implement tearDowns to clean up the network connections.
-
 
 class PeerTesting():
     """Testing service for peers."""
@@ -48,9 +46,31 @@ class NetworkTestingHelpers(object):
             log.msg("Bob's peers are %s" % bob.peers, debug=1)
             self.assert_(bob.uuid in alice.peers)
             self.assert_(alice.uuid in bob.peers)
-        d.addCallback(assert_connects)
+            self.assert_(alice.peers[bob.uuid][0].direct)
+            self.assert_(bob.peers[alice.uuid][0].direct)
+            d.addCallback(assert_connects)
         return alice, bob, d
 
+    def SetUpStar(self, num_spokes):
+        hub_port = 8790
+        spoke_ports = range(8791, 8791 + num_spokes)
+        hub_peer = self.SetUpServer(hub_port)
+        spoke_peers = [self.SetUpServer(port) for port in spoke_ports]
+        dl = []
+        for port in spoke_ports:
+            dl.append(hub_peer.Connect(port))
+        d = defer.DeferredList(dl)
+        def assert_connects(unused_arg):
+            self.assertEqual(len(hub_peer.peers), num_spokes)
+            for p in spoke_peers:
+                self.assertEqual(len(p.peers), 1)
+                # All spoke peers should be directly connected to the hub.
+                self.assert_(p.peers[hub_peer.uuid][0].direct)
+                # Hub peer should be directly connected to all spoke peers.
+                self.assert_(hub_peer.peers[p.uuid][0].direct)
+        d.addCallback(assert_connects)
+        return hub_peer, spoke_peers, d
+        
     def CleanUpPeers(self, root_peers):
         log.msg("Cleaning up root peers.", debug=1)
         dl = []
@@ -142,6 +162,8 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
     def tearDown(self):
+        # TODO(damonkohler): Clean up network connections here rather than
+        # in the test.
         pass
         
     def test_GiveProxyPeers(self):
@@ -157,7 +179,8 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         d = defer.DeferredList(dl)
         d.addCallback(lambda _: cindy.Connect(alice_port))
         d.addCallback(lambda _: dave.Connect(alice_port))
-        d.addCallback(lambda _: alice._GiveProxyPeers(alice.peers[bob.uuid][0]))
+        d.addCallback(
+            lambda _: alice._GiveProxyPeers(bob.uuid, alice.peers[bob.uuid][0]))
         def do_asserts(unused_arg):
             self.assertEqual(len(alice.peers), len(bob.peers))
         d.addCallback(do_asserts)
@@ -170,7 +193,7 @@ class TestSimpleNetwork(unittest.TestCase, NetworkTestingHelpers):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
     def tearDown(self):
-        pass
+        return self.CleanUpPeers(self.cleanup)
         
     def testSimpleNetwork(self):
         """Tests a simple network betwen Alice and Bob.
@@ -179,43 +202,64 @@ class TestSimpleNetwork(unittest.TestCase, NetworkTestingHelpers):
         Conenct method.
         """
         alice, bob, d = self.SetUpAliceAndBob()
+        self.cleanup = [alice, bob]
         d.addCallback(lambda _: alice.UpdateRemotePeers())
         d.addCallback(lambda _: self.PingTestPeers([alice, bob]))
-        d.addCallback(lambda _: self.CleanUpPeers([alice, bob]))
+        return d
+
+
+class TestSimpleNetworkReverseUpdate(unittest.TestCase, NetworkTestingHelpers):
+    """This used to expose a bug in UpdateRemotePeers.
+
+    The bug was exposed if Bob initiates the update. The same peer which
+    initiated the connection to the other peer also had to initiate the update
+    or exceptions were raised.
+
+    This bug probably isn't fixed yet, but is averted now because
+    _GiveProxyPeers no longer tries to send a PeerProxy of the target peer to
+    the target peer itself.
+    """    
+    def setUp(self):
+        pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
+
+    def tearDown(self):
+        return self.CleanUpPeers(self.cleanup)
+        
+    def testSimpleNetwork(self):
+        """Tests a simple network betwen Alice and Bob.
+
+        This also directly tests ExchangePeers through the PeerTesting service
+        Conenct method.
+        """
+        alice, bob, d = self.SetUpAliceAndBob()
+        self.cleanup = [alice, bob]
+        d.addCallback(lambda _: bob.UpdateRemotePeers())
+        d.addCallback(lambda _: self.PingTestPeers([alice, bob]))
         return d
 
 
 class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
-        self.hub_port = 8790
-        self.peer_ports = range(8791, 8794)
-        self.hub_peer = self.SetUpServer(self.hub_port)
-        self.spoke_peers = [self.SetUpServer(port) for port in self.peer_ports]
-
+        
     def tearDown(self):
-        return self.CleanUpPeers([self.hub_peer] + self.spoke_peers)
-
-    def _ConnectStarNetwork(self):
-        dl = []
-        for peer in self.spoke_peers:
-            dl.append(peer.Connect(self.hub_port))
-        return defer.DeferredList(dl)
+        return self.CleanUpPeers(self.cleanup)
 
     def testStarNetwork(self):
-        d = self._ConnectStarNetwork()
-        d.addCallback(lambda _: self.hub_peer.UpdateRemotePeers())
-        def assert_connects(unused_arg):
-            self.assertEqual(len(self.hub_peer.peers), len(self.peer_ports))
-            for p in self.spoke_peers:
-                self.assertEqual(len(p.peers), len(self.peer_ports),
-                                 'Peer %s only has connections to peers %s.' %
-                                 (p.uuid, p.peers.keys()))
-            return self.PingTestPeers([self.hub_peer] + self.spoke_peers)
-        d.addCallback(assert_connects)
+        # TODO(damonkohler): This test fails and exits uncleanly with more
+        # than one spoke. This is likely related to the reverse update bug.
+        num_spokes = 1
+        hub_peer, spoke_peers, d = self.SetUpStar(num_spokes)
+        self.cleanup = [hub_peer] + spoke_peers
+        d.addCallback(lambda _: hub_peer.UpdateRemotePeers())
+        def assert_successful_update(unused_arg):
+            self.assertEqual(len(hub_peer.peers), num_spokes)
+            for p in spoke_peers:
+                self.assertEqual(len(p.peers), num_spokes),
+            return self.PingTestPeers([hub_peer] + spoke_peers)
+        d.addCallback(assert_successful_update)
         return d
 
-TestStarNetwork.skip = "Leaves reactor unclean. Working on it."
 
 class TestProxy(unittest.TestCase):
     pass

@@ -123,7 +123,7 @@ class Peer(pb.Root):
         for uuid, peer in self.IterDirectPeers():
             log.msg("..Operating on direct peer %s" % uuid, debug=1)
             log.msg("....Updating peer.", debug=1)
-            d = self._GiveProxyPeers(peer)
+            d = self._GiveProxyPeers(uuid, peer)
             def push_update(unused_arg):
                 log.msg("....Pushing update.", debug=1)
                 return peer.callRemote('UpdateRemotePeers', update_serial)
@@ -131,13 +131,13 @@ class Peer(pb.Root):
             dl.append(d)
         return defer.DeferredList(dl)
 
-    def _GiveProxyPeers(self, peer):
+    def _GiveProxyPeers(self, uuid, peer):
         """Gives ProxyPeer objects of all peers to a remote peer."""
         # TODO(damonkohler): Currently this adds proxies everytime update is
         # called. Really, only new routes should be added. Need someway to
         # identify unique routes.
-        proxy_peers = [(uuid, PeerProxy(uuid, p)) for uuid, p in
-                       self.peers.iteritems()]
+        proxy_peers = [(u, PeerProxy(u, p)) for u, p in
+                       self.peers.iteritems() if u != uuid]
         dl = []
         for uuid, proxy_peer in proxy_peers:
             d = peer.callRemote('AddPeer', uuid, proxy_peer)
