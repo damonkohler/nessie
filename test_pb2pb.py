@@ -70,6 +70,17 @@ class NetworkTestingHelpers(object):
                 self.assert_(hub_peer.peers[p.uuid][0].direct)
         d.addCallback(assert_connects)
         return hub_peer, spoke_peers, d
+
+    def SetUpRing(self, num_peers):
+        ports = range(8790, 8790 + num_peers)
+        peers = [self.SetUpServer(port) for port in ports]
+        dl = []
+        for i, peer in enumerate(peers):
+            if i < num_peers - 1:
+                dl.append(peer.Connect(ports[i + 1]))
+            else:
+                dl.append(peer.Connect(ports[0]))
+        return peers, defer.DeferredList(dl)
         
     def CleanUpPeers(self, root_peers):
         log.msg("Cleaning up root peers.", debug=1)
@@ -162,9 +173,9 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
     def tearDown(self):
-        # TODO(damonkohler): Clean up network connections here rather than
-        # in the test.
-        pass
+        # REFACTOR(damonkohler): This method of cleanup leaves an unclean
+        # reactor on test failures.
+        self.CleanUpPeers(self.cleanup)
         
     def test_GiveProxyPeers(self):
         alice_port, bob_port = 8790, 8791
@@ -175,6 +186,7 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         dl.append(d)
         cindy, dave, d = self.SetUpAliceAndBob(alice_port=cindy_port,
                                                 bob_port=dave_port)
+        self.cleanup = [alice, bob, cindy, dave]
         dl.append(d)
         d = defer.DeferredList(dl)
         d.addCallback(lambda _: cindy.Connect(alice_port))
@@ -184,7 +196,6 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         def do_asserts(unused_arg):
             self.assertEqual(len(alice.peers), len(bob.peers))
         d.addCallback(do_asserts)
-        d.addCallback(lambda _: self.CleanUpPeers([alice, bob, cindy, dave]))
         return d
 
 
@@ -193,6 +204,8 @@ class TestSimpleNetwork(unittest.TestCase, NetworkTestingHelpers):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
     def tearDown(self):
+        # REFACTOR(damonkohler): This method of cleanup leaves an unclean
+        # reactor on test failures.
         return self.CleanUpPeers(self.cleanup)
         
     def testSimpleNetwork(self):
@@ -223,13 +236,15 @@ class TestSimpleNetworkReverseUpdate(unittest.TestCase, NetworkTestingHelpers):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
     def tearDown(self):
+        # REFACTOR(damonkohler): This method of cleanup leaves an unclean
+        # reactor on test failures.
         return self.CleanUpPeers(self.cleanup)
         
     def testSimpleNetwork(self):
         """Tests a simple network betwen Alice and Bob.
 
         This also directly tests ExchangePeers through the PeerTesting service
-        Conenct method.
+        Conenct method. Instead of Alice starting the update, now Bob does.
         """
         alice, bob, d = self.SetUpAliceAndBob()
         self.cleanup = [alice, bob]
@@ -243,12 +258,14 @@ class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
         
     def tearDown(self):
+        # REFACTOR(damonkohler): This method of cleanup leaves an unclean
+        # reactor on test failures.
         return self.CleanUpPeers(self.cleanup)
 
     def testStarNetwork(self):
         # TODO(damonkohler): This test fails and exits uncleanly with more
         # than one spoke. This is likely related to the reverse update bug.
-        num_spokes = 1
+        num_spokes = 5
         hub_peer, spoke_peers, d = self.SetUpStar(num_spokes)
         self.cleanup = [hub_peer] + spoke_peers
         d.addCallback(lambda _: hub_peer.UpdateRemotePeers())
@@ -260,6 +277,22 @@ class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
         d.addCallback(assert_successful_update)
         return d
 
+class TestRingNetwork(unittest.TestCase, NetworkTestingHelpers):
+    def setUp(self):
+        pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
+        
+    def tearDown(self):
+        # REFACTOR(damonkohler): This method of cleanup leaves an unclean
+        # reactor on test failures.
+        return self.CleanUpPeers(self.cleanup)
+
+    def testRingNetwork(self):
+        num_peers = 6
+        peers, d = self.SetUpRing(num_peers)
+        self.cleanup = peers
+        d.addCallback(lambda _: peers[0].UpdateRemotePeers())
+        d.addCallback(lambda _: self.PingTestPeers(peers))
+        return d
 
 class TestProxy(unittest.TestCase):
     pass

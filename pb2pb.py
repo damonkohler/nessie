@@ -17,10 +17,11 @@ class Proxy(pb.Referenceable):
 
     def callProxy(self, remote_function, *args, **kwargs):
 	if self.proxy_object.__class__.__name__ != 'Proxy':
-	    self.proxy_object.callRemote(remote_function, *args, **kwargs)
+	    return self.proxy_object.callRemote(remote_function,
+                                                *args, **kwargs)
 	else:
-	    self.proxy_object.callRemote('callProxy', remote_function,
-                                         *args, **kwargs)
+	    return self.proxy_object.callRemote('callProxy', remote_function,
+                                                *args, **kwargs)
 
     def remoteMessageReceived(self, broker, msg, args, kw):
         args = list(broker.unserialize(args))
@@ -45,7 +46,7 @@ class PeerProxy(Proxy):
         # REFACTOR(damonkohler): Create a router object to get the route from.
         # With it like this, I'd have to rewrite the CheckAlive method.
         self.proxy_object = self.peer_routes[0]
-        Proxy.callProxy(self, remote_function, *args, **kwargs)
+        return Proxy.callProxy(self, remote_function, *args, **kwargs)
 
 
 class Peer(pb.Root):
@@ -144,14 +145,11 @@ class Peer(pb.Root):
             d.addErrback(lambda reason: "Error %s" % reason.value)
             d.addErrback(util.println)
             dl.append(d)
-        d = defer.DeferredList(dl)
-        return d
+        return defer.DeferredList(dl)
     
     def ExchangePeers(self, peer):
         dl = []
         # TODO(damonkohler): Add errbacks.
-        # TODO(damonkohler): Direct peers are not being added on the remote
-        # side during a root peer exchange. They should be!
         dl.append(peer.callRemote('AddPeer', self.uuid, self, direct=True))
         d = peer.callRemote('GetUUID')
         def add_peer(uuid):
@@ -179,10 +177,8 @@ class Peer(pb.Root):
                 debug=1)
         if update_serial != self.last_update_serial:
             self.last_update_serial = update_serial
-            self.UpdateRemotePeers(update_serial)
-        else:
-            log.msg("Already did update #%d. Skipped." % update_serial,
-                    debug=1)
+            return self.UpdateRemotePeers(update_serial)
+        log.msg("Already did update #%d. Skipped." % update_serial, debug=1)
 
     def remote_GetUUID(self):
         log.msg("Sending UUID.", debug=1)
@@ -210,21 +206,25 @@ class Ping():
     time_module = time
     
     def remote_Ping(self):
-        log.msg("Peer %s responding to ping." % self.uuid, debug=1)
-        return self.time_module.time()
+        what_time = self.time_module.time()
+        log.msg("Peer %s responding to ping with time %s." %
+                (self.uuid, what_time), debug=1)
+        return what_time
 
     def _Ping(self, peer):
         start_time = self.time_module.time()
         d = peer.callRemote('Ping')
-        d.addCallback(lambda end_time: end_time - start_time)
+        d.addCallbacks(lambda end_time: end_time - start_time,
+                       lambda reason: "Ping failed: %s" % reason.value)
         d.addErrback(lambda reason: "Ping failed: %s" % reason.value)
         return d
 
     def PingPeer(self, peer):
-        log.msg("Sending ping.", debug=1)
         if self.CheckAlive(peer):
+            log.msg("Sending ping.", debug=1)
             return self._Ping(peer)
         else:
+            log.msg("Unable to ping peer. Peer not alive.", debug=1)
             return None
 
     def PingUUID(self, uuid):
