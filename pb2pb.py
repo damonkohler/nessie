@@ -1,3 +1,11 @@
+"""PB2PB is a peer-to-peer overlay network built on Twisted PB.
+
+@author: Damon Kohler (me@damonkohler.com)
+
+"""
+
+__author__ = "Damon Kohler (me@damonkohler.com)"
+
 import sys
 import random
 import uuid
@@ -11,7 +19,9 @@ from twisted.python import log
 
 
 class Proxy(pb.Referenceable):
+
     """Support for third-party references is provided through proxy objects."""
+
     def __init__(self, proxy_object):
 	self.proxy_object = proxy_object
 
@@ -37,7 +47,9 @@ class Proxy(pb.Referenceable):
 
 
 class PeerProxy(Proxy):
+
     """Wraps proxy objects for peers to add on-the-fly routing capabilities."""
+
     def __init__(self, uuid, peer_routes):
         self.peer_routes = peer_routes
         self.uuid = uuid
@@ -50,13 +62,15 @@ class PeerProxy(Proxy):
 
 
 class Peer(pb.Root):
+
     """Acts as the communication conduit between any two peers.
 
-    This is the first object exchanged when a connection takes place. It is
-    used to facilitate initial communication and store connections to other
-    peers.
+    This is the first object exchanged when a connection takes
+    place. It is used to facilitate initial communication and store
+    connections to other peers.
     
     """
+
     def __init__(self):
         self.peers = {}
         self.services = []
@@ -94,12 +108,13 @@ class Peer(pb.Root):
     def AddPeer(self, uuid, peer, direct=False):
         """Add a peer to the dict of peers.
 
-        Each peer is really a prioritized queue of objects representing the
-        peer with the specified UUID.
+        Each peer is really a prioritized queue of objects
+        representing the peer with the specified UUID.
 
-        TODO(damonkohler): This function might need to be renamed since it
-        doesn't clearly indicate that we're actually adding one particular
-        route to a peer and not really just the peer itself.
+        TODO(damonkohler): This function might need to be renamed
+        since it doesn't clearly indicate that we're actually adding
+        one particular route to a peer and not really just the peer
+        itself.
         
         """
         log.msg("Adding peer %s." % uuid, debug=1)
@@ -111,10 +126,10 @@ class Peer(pb.Root):
     def UpdateRemotePeers(self, update_serial=0):
         """Updates all remote peers with all currently known peers.
 
-        When called locally, a new update_serial is generated and transmited
-        with the requests for remote peers to also send out updates. Remote
-        requests to update peers only happen once per update_serial until a new
-        update_serial is received.
+        When called locally, a new update_serial is generated and
+        transmited with the requests for remote peers to also send out
+        updates. Remote requests to update peers only happen once per
+        update_serial until a new update_serial is received.
 
         """
         log.msg("Updating remote peers.", debug=1)
@@ -230,8 +245,9 @@ class Ping():
     def PingUUID(self, uuid):
         """Ping a peer.
 
-        Returns a defered that will return with a ping time or None if the
-        host is unreachable.
+        Returns a defered that will return with a ping time or None if
+        the host is unreachable.
+        
         """
         peer = self.PickAlive(uuid)
         if peer is not None:

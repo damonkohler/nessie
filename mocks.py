@@ -1,7 +1,16 @@
+"""Mock objects for testing.
+
+@author: Damon Kohler (me@damonkohler.com)
+
+"""
+
+__author__ = "Damon Kohler (me@damonkohler.com)"
+
 from twisted.internet import defer
 
 
 class MockRemotePeer(object):
+    
     def __init__(self):
         self.broker = MockBroker()
         self.remote_calls = []
@@ -13,10 +22,12 @@ class MockRemotePeer(object):
 
 
 class MockBroker(object):
+    
     disconnected = 0
 
 
 class MockFile(object):
+    
     def __init__(self):
         self.read_lines = []
         self.write_lines = []
@@ -36,7 +47,9 @@ class MockFile(object):
 
 class MockPeer(object): pass
 
+
 class MockTime(object):
+    
     def __init__(self, what_time):
         self.what_time = what_time
 

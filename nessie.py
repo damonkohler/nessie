@@ -1,3 +1,11 @@
+"""Nessie client.
+
+@author: Damon Kohler (me@damonkohler.com)
+
+"""
+
+__author__ = "Damon Kohler (me@damonkohler.com)"
+
 import sys
 import optparse
 
@@ -13,6 +21,7 @@ import pb2pb
 
 
 class ConsoleInput(object):
+    
     zope.interface.implements(interfaces.IReadDescriptor)
     input_file = sys.stdin
 
@@ -56,6 +65,7 @@ class ConsoleInput(object):
 
 
 class ClientCommands():
+    
     def client_connect(self, host, port):
         # TODO(damonkohler): Proper parameter validation.
         port = int(port)

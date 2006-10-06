@@ -1,3 +1,10 @@
+"""Tests for pb2pb.
+
+@author: Damon Kohler (me@damonkohler.com)
+"""
+
+__author__ = "Damon Kohler (me@damonkohler.com)"
+
 from twisted.trial import unittest
 from twisted.internet import reactor, defer
 from twisted.spread import pb
@@ -13,7 +20,9 @@ WHAT_TIME = 42
 
 
 class PeerTesting():
+    
     """Testing service for peers."""
+
     def Connect(self, port):
         factory = pb.PBClientFactory()
         self.connectors.append(reactor.connectTCP('localhost', port, factory))
@@ -23,7 +32,9 @@ class PeerTesting():
 
 
 class NetworkTestingHelpers(object):
+
     """A mix-in for TestCases that provides handy network testing functions."""
+
     def SetUpServer(self, port):
         root_peer = pb2pb.Peer()
         root_peer.UpdateServices([PeerTesting, pb2pb.Ping])
@@ -35,6 +46,7 @@ class NetworkTestingHelpers(object):
         """Sets up two connected peers.
 
         Also, asserts that the connection was successful.
+        
         """
         alice = self.SetUpServer(alice_port)
         bob = self.SetUpServer(bob_port)
@@ -115,6 +127,7 @@ class NetworkTestingHelpers(object):
 
 
 class TestPeerWithMocks(unittest.TestCase):
+    
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
@@ -169,6 +182,7 @@ class TestPeerWithMocks(unittest.TestCase):
 
 
 class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
+    
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
@@ -200,6 +214,7 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
 
 
 class TestSimpleNetwork(unittest.TestCase, NetworkTestingHelpers):
+    
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
@@ -222,16 +237,19 @@ class TestSimpleNetwork(unittest.TestCase, NetworkTestingHelpers):
 
 
 class TestSimpleNetworkReverseUpdate(unittest.TestCase, NetworkTestingHelpers):
+    
     """This used to expose a bug in UpdateRemotePeers.
 
-    The bug was exposed if Bob initiates the update. The same peer which
-    initiated the connection to the other peer also had to initiate the update
-    or exceptions were raised.
+    The bug was exposed if Bob initiates the update. The same peer
+    which initiated the connection to the other peer also had to
+    initiate the update or exceptions were raised.
 
     This bug probably isn't fixed yet, but is averted now because
-    _GiveProxyPeers no longer tries to send a PeerProxy of the target peer to
-    the target peer itself.
+    _GiveProxyPeers no longer tries to send a PeerProxy of the target
+    peer to the target peer itself.
+
     """    
+
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
 
@@ -243,8 +261,10 @@ class TestSimpleNetworkReverseUpdate(unittest.TestCase, NetworkTestingHelpers):
     def testSimpleNetwork(self):
         """Tests a simple network betwen Alice and Bob.
 
-        This also directly tests ExchangePeers through the PeerTesting service
-        Conenct method. Instead of Alice starting the update, now Bob does.
+        This also directly tests ExchangePeers through the PeerTesting
+        service Conenct method. Instead of Alice starting the update,
+        now Bob does.
+
         """
         alice, bob, d = self.SetUpAliceAndBob()
         self.cleanup = [alice, bob]
@@ -277,6 +297,7 @@ class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
         d.addCallback(assert_successful_update)
         return d
 
+
 class TestRingNetwork(unittest.TestCase, NetworkTestingHelpers):
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
@@ -294,6 +315,7 @@ class TestRingNetwork(unittest.TestCase, NetworkTestingHelpers):
         d.addCallback(lambda _: self.PingTestPeers(peers))
         return d
 
+
 class TestProxy(unittest.TestCase):
     pass
 
@@ -303,6 +325,7 @@ class TestPeerProxy(unittest.TestCase):
 
 
 class TestChat(unittest.TestCase):
+    
     def test_remote_Say(self):
         msg = 'Hello World!'
         mf = mocks.MockFile()
@@ -321,6 +344,7 @@ class TestChat(unittest.TestCase):
 
 
 class TestPing(unittest.TestCase):
+    
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
         self.ping = pb2pb.Peer()

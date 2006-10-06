@@ -1,9 +1,16 @@
+"""Associating parameters with a function.
+
+@author: Scott David Daniels
+
+http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/52549
+
+"""
+
+__author__ = "Scott David Daniels"
 
 class curry:
-    """curry -- associating parameters with a function
-    @author: Scott David Daniels
 
-    http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/52549
+    """Curries parameters into a function.
 
     In functional programming, currying is a way to bind arguments
     with a function and wait for the rest of the arguments to show up
@@ -18,6 +25,7 @@ class curry:
     triple = curry(operator.mul, 3)
 
     """    
+
     def __init__(self, fun, *args, **kwargs):
         self.fun = fun
         self.pending = args[:]
