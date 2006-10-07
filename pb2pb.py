@@ -1,6 +1,30 @@
+## Copyright (c) 2006 Damon Kohler
+
+## Permission is hereby granted, free of charge, to any person obtaining
+## a copy of this software and associated documentation files (the
+## "Software"), to deal in the Software without restriction, including
+## without limitation the rights to use, copy, modify, merge, publish,
+## distribute, sublicense, and/or sell copies of the Software, and to
+## permit persons to whom the Software is furnished to do so, subject to
+## the following conditions:
+
+## The above copyright notice and this permission notice shall be
+## included in all copies or substantial portions of the Software.
+
+## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+## EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+## MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+## NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+## LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 """PB2PB is a peer-to-peer overlay network built on Twisted PB.
 
-@author: Damon Kohler (me@damonkohler.com)
+@author: Damon Kohler
+@contact: me@damonkohler.com
+@license: MIT License
+@copyright: 2006 Damon Kohler
 
 """
 
@@ -111,11 +135,6 @@ class Peer(pb.Root):
         Each peer is really a prioritized queue of objects
         representing the peer with the specified UUID.
 
-        TODO(damonkohler): This function might need to be renamed
-        since it doesn't clearly indicate that we're actually adding
-        one particular route to a peer and not really just the peer
-        itself.
-        
         """
         log.msg("Adding peer %s." % uuid, debug=1)
         peer.direct = direct
@@ -148,10 +167,16 @@ class Peer(pb.Root):
         return defer.DeferredList(dl)
 
     def _GiveProxyPeers(self, uuid, peer):
-        """Gives ProxyPeer objects of all peers to a remote peer."""
-        # TODO(damonkohler): Currently this adds proxies everytime update is
-        # called. Really, only new routes should be added. Need someway to
-        # identify unique routes.
+        """Gives ProxyPeer objects of all peers to a remote peer.
+        
+        @todo: PeerProxies actually contain list of all possible
+        routes so that the best can be picked on the fly at a later
+        time.  Peers should have only one proxy for any particular
+        peer from each peer. That means this function either needs to
+        send along its own UUID or possibly perspectives could be
+        used.
+
+        """
         proxy_peers = [(u, PeerProxy(u, p)) for u, p in
                        self.peers.iteritems() if u != uuid]
         dl = []
@@ -185,9 +210,14 @@ class Peer(pb.Root):
         self.AddPeer(uuid, peer, direct=direct)
 
     def remote_UpdateRemotePeers(self, update_serial):
-        # TODO(damonkohler): If I were using Avatars and views I would know
-        # who called me and I could avoid sending them updates. This is a good
-        # idea because I obviously won't know anything more than they do.
+        """Initiates a remote peer update.
+        
+        @todo: If I were using Avatars and views I would know who
+        called me and I could avoid sending them updates. This is a
+        good idea because I obviously won't know anything more than
+        they do.
+
+        """
         log.msg("Asked to do update #%d of remote peers." % update_serial,
                 debug=1)
         if update_serial != self.last_update_serial:
@@ -218,6 +248,13 @@ class Chat():
 
 
 class Ping():
+
+    """Provides methods for pinging peers and measuring latency.
+
+    This is intended to be used as a Peer service.
+    
+    """
+    
     time_module = time
     
     def remote_Ping(self):
@@ -270,5 +307,5 @@ class Ping():
 
     def LatencySortRoutes(self):
         for uuid, routes in self.peers.iteritems():
-            routes.sort(key=operator.__attrgetter__('latency'))
+            routes.sort(key=operator.attrgetter('latency'))
 

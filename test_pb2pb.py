@@ -1,6 +1,31 @@
+## Copyright (c) 2006 Damon Kohler
+
+## Permission is hereby granted, free of charge, to any person obtaining
+## a copy of this software and associated documentation files (the
+## "Software"), to deal in the Software without restriction, including
+## without limitation the rights to use, copy, modify, merge, publish,
+## distribute, sublicense, and/or sell copies of the Software, and to
+## permit persons to whom the Software is furnished to do so, subject to
+## the following conditions:
+
+## The above copyright notice and this permission notice shall be
+## included in all copies or substantial portions of the Software.
+
+## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+## EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+## MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+## NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+## LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 """Tests for pb2pb.
 
-@author: Damon Kohler (me@damonkohler.com)
+@author: Damon Kohler
+@contact: me@damonkohler.com
+@license: MIT License
+@copyright: 2006 Damon Kohler
+
 """
 
 __author__ = "Damon Kohler (me@damonkohler.com)"
@@ -176,9 +201,15 @@ class TestPeerWithMocks(unittest.TestCase):
         self.assertEqual(p.remote_GetUUID(), p.uuid)
 
     def testUpdateServices(self):
-        self.fail()
+        class MockService(): pass
+        p = pb2pb.Peer()
+        p.UpdateServices([MockService])
+        self.assert_(MockService in p.__class__.__bases__)
 
-    testUpdateServices.todo = 'todo'
+    def testUpdateServicesWithNoServices(self):
+        p = pb2pb.Peer()
+        p.UpdateServices()
+        self.assertEqual(p.__class__.__bases__, p.original_bases)
 
 
 class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
@@ -210,6 +241,34 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         def do_asserts(unused_arg):
             self.assertEqual(len(alice.peers), len(bob.peers))
         d.addCallback(do_asserts)
+        return d
+
+
+class TestProxyChain(unittest.TestCase, NetworkTestingHelpers):
+    
+    def setUp(self):
+        pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
+
+    def tearDown(self):
+        # REFACTOR(damonkohler): This method of cleanup leaves an unclean
+        # reactor on test failures.
+        self.CleanUpPeers(self.cleanup)
+        
+    def testProxyChain(self):
+        alice_port, bob_port = 8790, 8791
+        cindy_port, dave_port = 8792, 8793
+        dl = []
+        alice, bob, d = self.SetUpAliceAndBob(alice_port=alice_port,
+                                               bob_port=bob_port)
+        dl.append(d)
+        cindy, dave, d = self.SetUpAliceAndBob(alice_port=cindy_port,
+                                                bob_port=dave_port)
+        self.cleanup = [alice, bob, cindy, dave]
+        dl.append(d)
+        d = defer.DeferredList(dl)
+        d.addCallback(lambda _: bob.Connect(cindy_port))
+        d.addCallback(lambda _: bob.UpdateRemotePeers())
+        d.addCallback(lambda _: self.PingTestPeers([alice, bob, cindy, dave]))
         return d
 
 
@@ -274,6 +333,7 @@ class TestSimpleNetworkReverseUpdate(unittest.TestCase, NetworkTestingHelpers):
 
 
 class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
+    
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
         
@@ -283,8 +343,6 @@ class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
         return self.CleanUpPeers(self.cleanup)
 
     def testStarNetwork(self):
-        # TODO(damonkohler): This test fails and exits uncleanly with more
-        # than one spoke. This is likely related to the reverse update bug.
         num_spokes = 5
         hub_peer, spoke_peers, d = self.SetUpStar(num_spokes)
         self.cleanup = [hub_peer] + spoke_peers
@@ -299,6 +357,7 @@ class TestStarNetwork(unittest.TestCase, NetworkTestingHelpers):
 
 
 class TestRingNetwork(unittest.TestCase, NetworkTestingHelpers):
+    
     def setUp(self):
         pb2pb.Ping.time_module = mocks.MockTime(WHAT_TIME)
         
@@ -314,14 +373,6 @@ class TestRingNetwork(unittest.TestCase, NetworkTestingHelpers):
         d.addCallback(lambda _: peers[0].UpdateRemotePeers())
         d.addCallback(lambda _: self.PingTestPeers(peers))
         return d
-
-
-class TestProxy(unittest.TestCase):
-    pass
-
-
-class TestPeerProxy(unittest.TestCase):
-    pass
 
 
 class TestChat(unittest.TestCase):
@@ -358,8 +409,3 @@ class TestPing(unittest.TestCase):
         peer.deferred.callback(WHAT_TIME + 1)
         d = self.ping.PingPeer(peer)
         d.addCallback(curry(self.assertEqual, 1))
-
-    def testPingUUID(self):
-       self.fail()
-
-    testPingUUID.todo = 'todo'
