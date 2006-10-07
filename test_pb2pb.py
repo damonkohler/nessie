@@ -22,13 +22,13 @@
 """Tests for pb2pb.
 
 @author: Damon Kohler
-@contact: me@damonkohler.com
+@contact: nessie@googlegroups.com
 @license: MIT License
 @copyright: 2006 Damon Kohler
 
 """
 
-__author__ = "Damon Kohler (me@damonkohler.com)"
+__author__ = "Damon Kohler (nessie@googlegroups.com)"
 
 from twisted.trial import unittest
 from twisted.internet import reactor, defer

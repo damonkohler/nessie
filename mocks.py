@@ -22,13 +22,13 @@
 """Mock objects for testing.
 
 @author: Damon Kohler
-@contact: me@damonkohler.com
+@contact: nessie@googlegroups.com
 @license: MIT License
 @copyright: 2006 Damon Kohler
 
 """
 
-__author__ = "Damon Kohler (me@damonkohler.com)"
+__author__ = "Damon Kohler (nessie@googlegroups.com)"
 
 from twisted.internet import defer
 

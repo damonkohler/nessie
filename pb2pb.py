@@ -22,13 +22,13 @@
 """PB2PB is a peer-to-peer overlay network built on Twisted PB.
 
 @author: Damon Kohler
-@contact: me@damonkohler.com
+@contact: nessie@googlegroups.com
 @license: MIT License
 @copyright: 2006 Damon Kohler
 
 """
 
-__author__ = "Damon Kohler (me@damonkohler.com)"
+__author__ = "Damon Kohler (nessie@googlegroups.com)"
 
 import sys
 import random
