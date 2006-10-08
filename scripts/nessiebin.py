@@ -19,7 +19,12 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Nessie client.
+"""Nessie binary.
+
+This is the entry point for Nessie. The intent is for this to be
+easily extensible with out more specific front-ends/clients. For
+example, console and AJAX clients. Clients should be part of the
+clients pacakage.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -41,54 +46,11 @@ from twisted.spread import pb
 from twisted.python import util
 from twisted.python import log
 
-import pb2pb
+from nessie import pb2pb
+from nessie import client
 
 
-class ConsoleInput(object):
-    
-    zope.interface.implements(interfaces.IReadDescriptor)
-    input_file = sys.stdin
-
-    def __init__(self, peer):
-        self.peer = peer
-
-    def fileno(self):
-        return 0
-
-    def connectionLost(self, reason):
-        print "Lost connection because %s" % reason
-
-    def doRead(self):
-        line = self.input_file.readline().strip()
-        if line:
-            if line[0] == '/':
-                self.ParseCommand(line)
-            else:
-                self.peer.Say(line)
-        else:
-            # This is for testing only. doRead doesn't need to return anything.
-            return None
-
-    def ParseCommand(self, line):
-        tokens = line.split(' ')
-        command = tokens[0][1:]
-        args = tokens[1:]
-
-        method = getattr(self.peer, "client_%s" % command, None)
-        if method is None:
-            log.msg("No such command: /%s" % command)
-        else:
-            try:
-                state = method(*args)
-            except TypeError:
-                log.msg("/%s didn't accept arguments %s" % (command, args))
-        
-    # TODO(damonkohler): Find out why this is necessary.
-    def logPrefix(self):
-        return 'ConsoleInput'
-
-
-class ClientCommands():
+class BasicClientCommands():
     
     def client_connect(self, host, port):
         # TODO(damonkohler): Proper parameter validation.
@@ -118,10 +80,10 @@ def main():
     # Create our root Peer object.
     root_peer = pb2pb.Peer()
     root_peer.UpdateServices(services_to_add=[pb2pb.Chat, pb2pb.Ping,
-                                              ClientCommands])
+                                              BasicClientCommands])
 
     # Set up reading for STDIN.
-    ci = ConsoleInput(root_peer)
+    ci = client.console.ConsoleInput(root_peer)
     reactor.addReader(ci)
 
     log.msg("Listening on %d..." % listen_port)

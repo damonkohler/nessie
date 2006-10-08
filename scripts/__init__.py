@@ -19,7 +19,7 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Nessie is usually categorized as a type of lake monster.
+"""Nessie scripts/binaries.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com

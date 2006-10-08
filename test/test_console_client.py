@@ -19,7 +19,7 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Nessie is usually categorized as a type of lake monster.
+"""Tests for Nessie client.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -27,3 +27,25 @@
 @copyright: 2006 Damon Kohler
 
 """
+
+__author__ = "Damon Kohler (nessie@googlegroups.com)"
+
+from twisted.trial import unittest
+
+from nessie.client import console
+from nessie.test import mocks
+
+
+class TestConsoleInput(unittest.TestCase):
+    
+    def test_doReadEmptyString(self):
+       ci = console.ConsoleInput(mocks.MockPeer())
+       mf = mocks.MockFile()
+       mf.read_lines = ['\n']
+       ci.input_file = mf
+       self.assertEqual(ci.doRead(), None)
+
+    def test_doRead(self):
+        self.fail()
+
+    test_doRead.todo = 'todo'

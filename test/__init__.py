@@ -19,7 +19,7 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Tests for Nessie client.
+"""Nessie tests package.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -27,25 +27,3 @@
 @copyright: 2006 Damon Kohler
 
 """
-
-__author__ = "Damon Kohler (nessie@googlegroups.com)"
-
-from twisted.trial import unittest
-
-import nessie
-import mocks
-
-
-class TestConsoleInput(unittest.TestCase):
-    
-    def test_doReadEmptyString(self):
-       ci = nessie.ConsoleInput(mocks.MockPeer())
-       mf = mocks.MockFile()
-       mf.read_lines = ['\n']
-       ci.input_file = mf
-       self.assertEqual(ci.doRead(), None)
-
-    def test_doRead(self):
-        self.fail()
-
-    test_doRead.todo = 'todo'

@@ -19,7 +19,14 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Nessie is usually categorized as a type of lake monster.
+"""Provides various front-ends or clients for Nessie.
+
+Clients are basically mixins for Peer objects. They also provide
+front-ends by adding readers to the reactor or starting their own
+services, such as Twisted Web to provide a web front-end. Client
+commands can be added as mix-ins for the Peer class. A basic set of
+client commands are provided in this module. Client commands should
+start with he prefix 'client_'.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -27,3 +34,5 @@
 @copyright: 2006 Damon Kohler
 
 """
+
+from nessie.client import console

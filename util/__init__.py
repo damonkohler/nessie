@@ -19,7 +19,7 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Nessie is usually categorized as a type of lake monster.
+"""Utility modules used for Nessie.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -27,3 +27,6 @@
 @copyright: 2006 Damon Kohler
 
 """
+
+import curry
+curry = curry.curry

@@ -36,9 +36,9 @@ from twisted.spread import pb
 from twisted.python import util
 from twisted.python import log
 
-import pb2pb
-import mocks
-from curry import curry
+from nessie import pb2pb
+from nessie.test import mocks
+from nessie.util import curry
 
 
 WHAT_TIME = 42
