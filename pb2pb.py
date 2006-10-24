@@ -32,14 +32,19 @@ __author__ = "Damon Kohler (nessie@googlegroups.com)"
 
 import sys
 import random
-import uuid
 import operator
 import time
+import uuid
+
+import zope.interface
 
 from twisted.spread import pb
-from twisted.internet import defer
-from twisted.python import util
-from twisted.python import log
+from twisted.internet import defer, reactor
+from twisted.python import util, log
+from twisted.cred import portal
+
+from nessie import credible
+from nessie.util import curry
 
 
 class Proxy(pb.Referenceable):
@@ -85,7 +90,7 @@ class PeerProxy(Proxy):
         return Proxy.callProxy(self, remote_function, *args, **kwargs)
 
 
-class Peer(pb.Root):
+class Peer(object):
 
     """Acts as the communication conduit between any two peers.
 
@@ -99,11 +104,87 @@ class Peer(pb.Root):
         self.peers = {}
         self.services = []
         self.original_bases = self.__class__.__bases__
-        self.uuid = str(uuid.uuid4())
         self.last_update_serial = 0
-        self.listeners = []
+        self.listener = None
+        self.listen_port = random.randint(49152, 65535)
         self.connectors = []
+        self.loch = None
+        self.server_factory = None
+        self.uuid = str(uuid.uuid4())
 
+    def Listen(self, port=None):
+        """Starts listening for Nessie connections."""
+        if port is not None:
+            self.listen_port = port
+        if self.loch is None:
+            self.loch = portal.Portal(credible.Loch(self))
+            self.loch.registerChecker(credible.NoAuthChecker())
+        if self.server_factory is None:
+            self.server_factory = pb.PBServerFactory(self.loch)
+        self.listener = reactor.listenTCP(self.listen_port, self.server_factory)
+        log.msg("Started listening on port %d." % self.listen_port)
+
+    def StopListening(self):
+        """Stops listening for Nessie connections."""
+        def stopped_listening(unused_arg):
+            self.listener = None
+            log.msg("Stopped listening.")
+        if self.listener is not None:
+            d = self.listener.stopListening()
+            d.addCallback(stopped_listening)
+            return d
+        log.msg("Not listening.")
+        return False
+
+    def Authenticate(self, host, port):
+        """Attempts to connect and log in to a remote peer."""
+        factory = pb.PBClientFactory()
+        log.msg("Connecting to host %s on port %d." % (host, port))
+        self.connectors.append(reactor.connectTCP(host, port, factory))
+        d = factory.login(credible.NoAuthCredentials(self.uuid),
+                          credible.Channel())
+        return d
+        
+    def ReverseAuthenticate(self, mind):
+        """Log in to the client represented by mind."""
+        if mind is None:
+            return False
+        remote_host = mind.broker.transport.getPeer()
+        d = mind.callRemote('GetPort')
+        d.addCallback(curry(self.Authenticate, remote_host))
+        return d
+        # TODO(damonkohler): Add errback to kill the connection on failed
+        # reverse authentication.
+
+    def Connect(self, host, port):
+        """Connects to host:port and updates peers.
+
+        @todo: This should only do the connect. Updating the peers
+        from the host should be done in a separate method.
+        
+        """
+        d = self.Authenticate(host, port)
+        avatar = None
+        def get_uuid(self, new_avatar):
+            avatar = new_avatar
+            return avatar.callRemote('GetUUID')
+        def add_avatar(self, uuid):
+            self.AddPeer(uuid, avatar, direct=True)
+            return avatar
+        d.addCallback(get_uuid)
+        d.addCallback(add_avatar)
+        return d
+
+    def NegotiateConnection(self, host, port):
+        d = self.Connect(host, port)
+        def add_peers(self, peers):
+            for uuid, proxy_peer in peers:
+                self.AddPeer(uuid, proxy_peer)
+        d.addCallback(lambda x: x.callRemote('GetPeers'))
+        d.addCallback(add_peers)
+        return d
+        
+        
     def IterPeers(self):
         for uuid in self.peers.keys():
             peer = self.PickAlive(uuid)
@@ -166,6 +247,10 @@ class Peer(pb.Root):
             dl.append(d)
         return defer.DeferredList(dl)
 
+    def GetProxyPeers(self):
+        """Returns a list of proxied peer objects."""
+        return [(u, PeerProxy(u, p)) for u, p in self.peers.iteritems()]
+        
     def _GiveProxyPeers(self, uuid, peer):
         """Gives ProxyPeer objects of all peers to a remote peer.
         
@@ -186,7 +271,7 @@ class Peer(pb.Root):
             d.addErrback(util.println)
             dl.append(d)
         return defer.DeferredList(dl)
-    
+
     def ExchangePeers(self, peer):
         dl = []
         # TODO(damonkohler): Add errbacks.
@@ -206,29 +291,6 @@ class Peer(pb.Root):
             self.services.extend(services_to_add)
         self.__class__.__bases__ = self.original_bases + tuple(self.services)
 
-    def remote_AddPeer(self, uuid, peer, direct=False):
-        self.AddPeer(uuid, peer, direct=direct)
-
-    def remote_UpdateRemotePeers(self, update_serial):
-        """Initiates a remote peer update.
-        
-        @todo: If I were using Avatars and views I would know who
-        called me and I could avoid sending them updates. This is a
-        good idea because I obviously won't know anything more than
-        they do.
-
-        """
-        log.msg("Asked to do update #%d of remote peers." % update_serial,
-                debug=1)
-        if update_serial != self.last_update_serial:
-            self.last_update_serial = update_serial
-            return self.UpdateRemotePeers(update_serial)
-        log.msg("Already did update #%d. Skipped." % update_serial, debug=1)
-
-    def remote_GetUUID(self):
-        log.msg("Sending UUID.", debug=1)
-        return self.uuid
-    
 
 class Chat():
     chat_file = sys.stdout

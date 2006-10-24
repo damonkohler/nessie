@@ -19,7 +19,7 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Mock objects for testing.
+"""Tests for nessie.credible.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -30,62 +30,36 @@
 
 __author__ = "Damon Kohler (nessie@googlegroups.com)"
 
-from twisted.internet import defer
+from twisted.trial import unittest
+from twisted.internet import reactor, defer
+from twisted.spread import pb
+from twisted.python import util, log
+
+from nessie import credible
+from nessie.test import mocks
+from nessie.util import curry
 
 
-class MockRemotePeer(object):
+class LochTest(unittest.TestCase):
     
-    def __init__(self):
-        self.broker = MockBroker()
-        self.remote_calls = []
-        self.deferred = defer.Deferred()
+    """Tests nessie.credible.Loch."""
 
-    def callRemote(self, *args, **kwargs):
-        self.remote_calls.append((args, kwargs))
-        return self.deferred
+    def setUp(self):
+        self.p = mocks.MockPeer()
+        self.l = credible.Loch(self.p)
 
+    def testInit(self):
+        self.assertEqual(self.l.root_peer, self.p)
+        self.assertEqual(self.l.monsters, {})
 
-class MockBroker(object):
-    
-    disconnected = 0
-
-
-class MockFile(object):
-    
-    def __init__(self):
-        self.read_lines = []
-        self.write_lines = []
-        self.read_cursor = 0
-
-    def write(self, msg):
-        self.write_lines.append(msg)
-
-    def readline(self):
-        line = self.read_lines[self.read_cursor]
-        self.read_cursor += 1
-        return line
-
-    def seek(self, index):
-        self.read_cursor = index
-
-
-class MockPeer(object):
-
-    def __init__(self, calls=None):
-        if calls is None:
-            self.calls = []
-        else:
-            self.calls = calls
-
-    def __getattr__(self, name):
-        self.calls.append(name)
-        return lambda *args, **kwargs: 1
-
-
-class MockTime(object):
-    
-    def __init__(self, what_time):
-        self.what_time = what_time
-
-    def time(self):
-        return self.what_time
+    def testRequestAvatar(self):
+        avatar_id = 'id'
+        class Mind(object): pass
+        self.assertRaises(AssertionError, self.l.requestAvatar, avatar_id, None)
+        iface, avatar, f = self.l.requestAvatar(avatar_id, None,
+                                                pb.IPerspective)
+        self.assert_(iface is pb.IPerspective)
+        self.assert_(avatar_id in self.l.monsters)
+        iface, avatar_b, f = self.l.requestAvatar(avatar_id, None,
+                                                  pb.IPerspective)
+        self.assert_(avatar_b is avatar)

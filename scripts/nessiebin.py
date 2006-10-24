@@ -37,35 +37,30 @@ __author__ = "Damon Kohler (nessie@googlegroups.com)"
 
 import sys
 import optparse
+import uuid
 
 import zope.interface
 
-from twisted.internet import interfaces
 from twisted.internet import reactor
+from twisted.cred import portal, checkers
 from twisted.spread import pb
-from twisted.python import util
-from twisted.python import log
+from twisted.python import util, log
 
 from nessie import pb2pb
 from nessie import client
+from nessie import credible
 
 
 class BasicClientCommands():
     
     def client_connect(self, host, port):
-        # TODO(damonkohler): Proper parameter validation.
-        port = int(port)
+        d = self.Authenticate(host, port)
 
-        factory = pb.PBClientFactory()
-        log.msg("Connecting to %s:%s..." % (host, port))
-        reactor.connectTCP(host, port, factory)
-
-        d = factory.getRootObject()
         d.addCallback(self.ExchangePeers)
         d.addCallback(lambda _: self.UpdateRemotePeers())
         d.addErrback(lambda reason: "Error %s" % reason.value)
         d.addErrback(util.println)
-        
+
 
 def main():
     parser = optparse.OptionParser()
@@ -86,9 +81,7 @@ def main():
     ci = client.console.ConsoleInput(root_peer)
     reactor.addReader(ci)
 
-    log.msg("Listening on %d..." % listen_port)
-    factory = pb.PBServerFactory(root_peer)
-    reactor.listenTCP(listen_port, factory)
+    root_peer.StartListening(port=listen_port)
 
     reactor.run()
 

@@ -19,7 +19,11 @@
 ## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 ## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Mock objects for testing.
+"""Nessie AJAX client.
+
+The AJAX client exposes a JSON API using twisted.web2. Nessie
+interfaces can be written as completely decoupled web pages loaded
+directly into the browser from local disk.
 
 @author: Damon Kohler
 @contact: nessie@googlegroups.com
@@ -29,63 +33,3 @@
 """
 
 __author__ = "Damon Kohler (nessie@googlegroups.com)"
-
-from twisted.internet import defer
-
-
-class MockRemotePeer(object):
-    
-    def __init__(self):
-        self.broker = MockBroker()
-        self.remote_calls = []
-        self.deferred = defer.Deferred()
-
-    def callRemote(self, *args, **kwargs):
-        self.remote_calls.append((args, kwargs))
-        return self.deferred
-
-
-class MockBroker(object):
-    
-    disconnected = 0
-
-
-class MockFile(object):
-    
-    def __init__(self):
-        self.read_lines = []
-        self.write_lines = []
-        self.read_cursor = 0
-
-    def write(self, msg):
-        self.write_lines.append(msg)
-
-    def readline(self):
-        line = self.read_lines[self.read_cursor]
-        self.read_cursor += 1
-        return line
-
-    def seek(self, index):
-        self.read_cursor = index
-
-
-class MockPeer(object):
-
-    def __init__(self, calls=None):
-        if calls is None:
-            self.calls = []
-        else:
-            self.calls = calls
-
-    def __getattr__(self, name):
-        self.calls.append(name)
-        return lambda *args, **kwargs: 1
-
-
-class MockTime(object):
-    
-    def __init__(self, what_time):
-        self.what_time = what_time
-
-    def time(self):
-        return self.what_time
