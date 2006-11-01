@@ -292,7 +292,7 @@ class TestProxyChain(unittest.TestCase, NetworkTestingHelpers):
         return d
 
 
-TestProxyChain.skip = 'Failing due to cred transition.'
+#TestProxyChain.skip = 'Failing due to cred transition.'
 
 
 class TestSimpleNetwork(unittest.TestCase, NetworkTestingHelpers):
