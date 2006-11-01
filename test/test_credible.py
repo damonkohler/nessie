@@ -54,7 +54,6 @@ class LochTest(unittest.TestCase):
 
     def testRequestAvatar(self):
         avatar_id = 'id'
-        class Mind(object): pass
         self.assertRaises(AssertionError, self.l.requestAvatar, avatar_id, None)
         iface, avatar, f = self.l.requestAvatar(avatar_id, None,
                                                 pb.IPerspective)
@@ -63,3 +62,19 @@ class LochTest(unittest.TestCase):
         iface, avatar_b, f = self.l.requestAvatar(avatar_id, None,
                                                   pb.IPerspective)
         self.assert_(avatar_b is avatar)
+
+
+class NoAuthenticationTest(unittest.TestCase):
+
+    """Tests authentication with NoAuth credentials and checker."""
+
+    uuid = '1234'
+
+    def testNoAuthCredentials(self):
+        creds = credible.NoAuthCredentials(self.uuid)
+        self.assertEqual(creds.username, self.uuid)
+
+    def testNoAuthChecker(self):
+        creds = credible.NoAuthCredentials(self.uuid)
+        checker = credible.NoAuthChecker()
+        self.assertEqual(checker.requestAvatarId(creds), self.uuid)

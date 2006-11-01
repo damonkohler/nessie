@@ -54,8 +54,13 @@ class Loch(object):
         else:
             avatar = LochMonster(avatar_id, self.root_peer)
             self.monsters[avatar_id] = avatar
-        avatar.attached(mind)
-        return pb.IPerspective, avatar, lambda a=avatar: a.detached()
+        avatar_tuple = pb.IPerspective, avatar, lambda a=avatar: a.detached()
+        d = avatar.attached(mind)
+        if d:
+            d.addCallback(lambda unused_arg: avatar_tuple)
+            return d
+        else:
+            return avatar_tuple
 
 
 class LochMonster(pb.Avatar):
@@ -68,7 +73,9 @@ class LochMonster(pb.Avatar):
 
     def attached(self, mind):
         self.remote = mind
-        self.root_peer.ReverseAuthenticate(mind)
+        if mind is None:
+            return False
+        return self.root_peer.ReverseAuthenticate(mind)
 
     def detached(self):
         self.remote = None
@@ -92,10 +99,10 @@ class LochMonster(pb.Avatar):
             return root_peer.UpdateRemotePeers(update_serial)
         log.msg("Already did update #%d. Skipped." % update_serial, debug=1)
 
-    def perspectivee_GetUUID(self):
+    def perspective_GetUUID(self):
         """Returns the UUID for this server."""
-        log.msg("Sending UUID.", debug=1)
-        return self.uuid
+        log.msg("Sending UUID %s." % self.uuid, debug=1)
+        return self.root_peer.uuid
 
     def perspective_GetPeers(self):
         """Returns a list of proxied peers.
@@ -119,12 +126,15 @@ class Channel(pb.Referenceable):
     the port.
 
     """
+    def __init__(self, port, uuid):
+        self.port = port
+        self.uuid = uuid
+        
+    def remote_GetPort(self):
+        return self.port
 
-    # TODO(damonkohler): Need to figure out where to get the port form.
-    port = 8790
-
-    def view_Port(self):
-        return port
+    def remote_GetUUID(self):
+        return self.uuid
 
 
 class NoAuthCredentials(credentials.UsernamePassword):

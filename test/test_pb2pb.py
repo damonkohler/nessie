@@ -57,6 +57,7 @@ class NetworkTestingHelpers(object):
         be rethought.
 
         """
+        log.msg("Setting up server on port %d." % port, debug=1)
         root_peer = pb2pb.Peer()
         #root_peer.UpdateServices((pb2pb.Ping,))
         root_peer.Listen(port)
@@ -70,14 +71,14 @@ class NetworkTestingHelpers(object):
         """
         alice = self.SetUpServer(alice_port)
         bob = self.SetUpServer(bob_port)
-        dl = (alice.Connect('localhost', bob_port),
-              bob.Connect('localhost', alice_port))
+        dl = (alice.NegotiateConnection('localhost', bob_port),
+              bob.NegotiateConnection('localhost', alice_port))
         d = defer.DeferredList(dl)
         def assert_connects(unused_arg):
-            self.assertEqual(len(alice.peers), 1)
-            self.assertEqual(len(bob.peers), 1)
             log.msg("Alice's peers are %s" % alice.peers, debug=1)
             log.msg("Bob's peers are %s" % bob.peers, debug=1)
+            self.assertEqual(len(alice.peers), 1)
+            self.assertEqual(len(bob.peers), 1)
             self.assert_(bob.uuid in alice.peers)
             self.assert_(alice.uuid in bob.peers)
             self.assert_(alice.peers[bob.uuid][0].direct)
@@ -126,10 +127,12 @@ class NetworkTestingHelpers(object):
         d = defer.DeferredList(dl)
         def do_disconnects(unused_arg):
             for rp in root_peers:
-                for connector in rp.connectors:
-                    connector.disconnect()
+                connectors = [c for c in rp.connectors
+                              if c.state == 'connected']
+                for c in connectors:
+                    c.disconnect()
                 log.msg("Disconnected %d connections made by root peer %s." %
-                        (len(rp.connectors), rp.uuid), debug=1)
+                        (len(connectors), rp.uuid), debug=1)
         d.addCallback(do_disconnects)
         return d
 
@@ -150,16 +153,26 @@ class NetworkTestingHelpers(object):
 class TestAliceAndBob(unittest.TestCase, NetworkTestingHelpers):
 
     def tearDown(self):
-        self.CleanUpPeers((alice, bob))
+        self.CleanUpPeers(self.cleanup)
 
     def testSetUpAliceAndBob(self):
         alice, bob, d = self.SetUpAliceAndBob()
+        self.cleanup = (alice, bob)
         self.assert_(isinstance(alice, pb2pb.Peer))
         self.assert_(isinstance(bob, pb2pb.Peer))
         return d
 
-
-TestAliceAndBob.skip = 'Failing due to cred transition.'
+    def testConnect(self):
+        alice_port = 8790
+        bob_port = 8791
+        alice = self.SetUpServer(alice_port)
+        bob = self.SetUpServer(bob_port)
+        self.cleanup = alice, bob
+        d = alice.Connect('localhost', bob_port)
+        def assert_connected(unused_arg):
+            self.assert_(bob.uuid in alice.peers)
+        d.addCallback(assert_connected)
+        return d
 
 
 class TestPeerWithMocks(unittest.TestCase):
@@ -241,17 +254,14 @@ class TestGiveProxyPeers(unittest.TestCase, NetworkTestingHelpers):
         self.cleanup = [alice, bob, cindy, dave]
         dl.append(d)
         d = defer.DeferredList(dl)
-        d.addCallback(lambda _: cindy.Connect(alice_port))
-        d.addCallback(lambda _: dave.Connect(alice_port))
+        d.addCallback(lambda _: cindy.Connect('localhost', alice_port))
+        d.addCallback(lambda _: dave.Connect('localhost', alice_port))
         d.addCallback(
             lambda _: alice._GiveProxyPeers(bob.uuid, alice.peers[bob.uuid][0]))
         def do_asserts(unused_arg):
             self.assertEqual(len(alice.peers), len(bob.peers))
         d.addCallback(do_asserts)
         return d
-
-
-TestGiveProxyPeers.skip = 'Failing due to cred transition.'
 
 
 class TestProxyChain(unittest.TestCase, NetworkTestingHelpers):
@@ -276,7 +286,7 @@ class TestProxyChain(unittest.TestCase, NetworkTestingHelpers):
         self.cleanup = [alice, bob, cindy, dave]
         dl.append(d)
         d = defer.DeferredList(dl)
-        d.addCallback(lambda _: bob.Connect(cindy_port))
+        d.addCallback(lambda _: bob.Connect('localhost', cindy_port))
         d.addCallback(lambda _: bob.UpdateRemotePeers())
         d.addCallback(lambda _: self.PingTestPeers([alice, bob, cindy, dave]))
         return d
@@ -419,9 +429,6 @@ class TestChat(unittest.TestCase):
         self.assertEqual([chat.chat_format % msg], mf.write_lines)
 
 
-#TestChat.skip = 'Failing due to cred transition.'
-
-
 class TestPing(unittest.TestCase):
     
     def setUp(self):
@@ -439,4 +446,4 @@ class TestPing(unittest.TestCase):
         d.addCallback(curry(self.assertEqual, 1))
 
 
-TestPing.skip = 'Failing due to cred transition.'
+TestPing.skip = 'Indirectly failing due to cred transition.'

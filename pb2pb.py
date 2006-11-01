@@ -108,6 +108,7 @@ class Peer(object):
         self.listener = None
         self.listen_port = random.randint(49152, 65535)
         self.connectors = []
+        self.portal = None
         self.loch = None
         self.server_factory = None
         self.uuid = str(uuid.uuid4())
@@ -117,10 +118,12 @@ class Peer(object):
         if port is not None:
             self.listen_port = port
         if self.loch is None:
-            self.loch = portal.Portal(credible.Loch(self))
-            self.loch.registerChecker(credible.NoAuthChecker())
+            # TODO(damonkohler): This assigns a portal, not a loch.
+            self.loch = credible.Loch(root_peer=self)
+            self.portal = portal.Portal(self.loch)
+            self.portal.registerChecker(credible.NoAuthChecker())
         if self.server_factory is None:
-            self.server_factory = pb.PBServerFactory(self.loch)
+            self.server_factory = pb.PBServerFactory(self.portal)
         self.listener = reactor.listenTCP(self.listen_port, self.server_factory)
         log.msg("Started listening on port %d." % self.listen_port)
 
@@ -138,52 +141,54 @@ class Peer(object):
 
     def Authenticate(self, host, port):
         """Attempts to connect and log in to a remote peer."""
+        log.msg("Starting authentication with %s:%d." % (host, port), debug=1)
         factory = pb.PBClientFactory()
         log.msg("Connecting to host %s on port %d." % (host, port))
         self.connectors.append(reactor.connectTCP(host, port, factory))
         d = factory.login(credible.NoAuthCredentials(self.uuid),
-                          credible.Channel())
+                          credible.Channel(self.listen_port, self.uuid))
         return d
         
     def ReverseAuthenticate(self, mind):
         """Log in to the client represented by mind."""
-        if mind is None:
-            return False
-        remote_host = mind.broker.transport.getPeer()
-        d = mind.callRemote('GetPort')
-        d.addCallback(curry(self.Authenticate, remote_host))
+        log.msg("%s reverse authenticating." % self.uuid, debug=1)
+        def reverse_auth(uuid):
+            if uuid not in self.loch.monsters:
+                remote_host = mind.broker.transport.getPeer().host
+                d = mind.callRemote('GetPort')
+                d.addCallback(curry(self.Authenticate, remote_host))
+                return d
+        d = mind.callRemote('GetUUID')
+        d.addCallback(reverse_auth)
         return d
         # TODO(damonkohler): Add errback to kill the connection on failed
         # reverse authentication.
 
     def Connect(self, host, port):
-        """Connects to host:port and updates peers.
-
-        @todo: This should only do the connect. Updating the peers
-        from the host should be done in a separate method.
-        
-        """
+        """Connects to host:port."""
         d = self.Authenticate(host, port)
-        avatar = None
-        def get_uuid(self, new_avatar):
-            avatar = new_avatar
-            return avatar.callRemote('GetUUID')
-        def add_avatar(self, uuid):
+        def get_uuid(avatar):
+            d = avatar.callRemote('GetUUID')
+            d.addCallback(curry(add_avatar, avatar))
+            return d
+        def add_avatar(avatar, uuid):
             self.AddPeer(uuid, avatar, direct=True)
             return avatar
         d.addCallback(get_uuid)
-        d.addCallback(add_avatar)
         return d
 
     def NegotiateConnection(self, host, port):
+        """Connects, authenticates, and syncs peers."""
+        log.msg("Starting connection negotiation with %s:%d." % (host, port),
+                debug=1)
         d = self.Connect(host, port)
-        def add_peers(self, peers):
+        def add_peers(peers):
+            log.msg("Adding peers %s." % peers, debug=1)
             for uuid, proxy_peer in peers:
                 self.AddPeer(uuid, proxy_peer)
         d.addCallback(lambda x: x.callRemote('GetPeers'))
         d.addCallback(add_peers)
         return d
-        
         
     def IterPeers(self):
         for uuid in self.peers.keys():
@@ -217,7 +222,7 @@ class Peer(object):
         representing the peer with the specified UUID.
 
         """
-        log.msg("Adding peer %s." % uuid, debug=1)
+        log.msg("Peer %s adding peer %s." % (self.uuid, uuid), debug=1)
         peer.direct = direct
         if uuid != self.uuid:
             if peer not in self.peers.setdefault(uuid, []):
