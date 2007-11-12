@@ -27,6 +27,7 @@
 __author__ = "damonkohler@gmail.com (Damon Kohler)"
 
 import sys
+import socket
 import node
 import opendht
 import hashlib
@@ -76,25 +77,6 @@ def Decrypt(key, value):
   return RemovePadding(value)
 
 
-class DumbDht(object):
-
-  """A simulated DHT for manual testing."""
-
-  def __init__(self):
-    self._dht = {}
-
-  def Put(self, key, value):
-    self._dht[key] = value
-
-  def Get(self, key):
-    return self._dht[key]
-
-  def Remove(self, key, value, secret):
-    assert key in self._dht
-    assert value == self._dht[key]
-    del self._dht[key]
-
-
 class Nessie(object):
 
   """A P2P darknet."""
@@ -103,7 +85,7 @@ class Nessie(object):
     self.user_id = user_id
     self.network_id = network_id
     self._node = None
-    self._dht = DumbDht()
+    self._dht = opendht.OpenDht()
 
   def _GetServerKey(self, user_id):
     """Server keys are a hash of your user ID and the network ID."""
@@ -118,8 +100,10 @@ class Nessie(object):
   def AddPeer(self, user_id):
     """Add a peer that has announced their server."""
     key = self._GetServerKey(user_id)
-    value = self._dht.Get(key)
-    value = Decrypt(self.network_id, value)
+    values, placemark = self._dht.Get(key)
+    # NOTE(damonkohler): Need to accomodate for the possibility of multipe
+    # values.
+    value = Decrypt(self.network_id, values[0])
     host, port = value.split(':')
     port = int(port)
     self._node.AddPeer(host, port)
@@ -136,7 +120,10 @@ class Nessie(object):
 
 
 if __name__ == '__main__':
-  address = sys.argv[1], int(sys.argv[2])
+  if len(sys.argv) != 5:
+    print 'nessie.py host port user_id network_id'
+    sys.exit(1)
+  address = socket.gethostbyname(sys.argv[1]), int(sys.argv[2])
   id = sys.argv[3:5]
   me = Nessie(*id)
   me.Serve(*address)
