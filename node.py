@@ -34,6 +34,8 @@ import xmlrpclib
 
 class Node(object):
 
+  """Nodes have collections of peers to communicate with."""
+
   def __init__(self, host, port):
     self.server = SimpleXMLRPCServer.SimpleXMLRPCServer((host, port))
     self.server.register_function(self.PrintMessage)
