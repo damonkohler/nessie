@@ -26,23 +26,57 @@
 
 __author__ = "damonkohler@gmail.com (Damon Kohler)"
 
+import random
 import sha
+import socket
+import threading
+import time
+import urllib2
 import xmlrpclib
 
-# Other gateways listed at http://opendht.org/servers.txt. This gateway uses
-# OASIS (http://oasis.coralcdn.org/) to find the nearest node.
-GATEWAY = 'http://opendht.nyuld.net:5851/'
+# A up-to-date list of all gateways.
+GATEWAYS = 'http://opendht.org/servers.txt'
+# This gateway uses OASIS (http://oasis.coralcdn.org/) to find the nearest node.
+OASIS = 'opendht.nyuld.net'
+OASIS_GATEWAY = 'http://%s:5851/' % OASIS
 # Application ID.
 APP_ID = 'Nessie'
 # Response code to human-readable code mapping.
 RESPONSES = {0: 'Success', 1: 'Capacity', 2: 'Again'}
 # Time to live for puts and removes.
-TTL = 3600
+TTL = 60 * 5  # 5 minutes.
+
+
+def FindGateway():
+  """Find the fastest gateway."""
+  print 'Downloading server list.'
+  servers_txt = urllib2.urlopen(GATEWAYS)
+  hosts = [s.strip().split()[2] for s in servers_txt.readlines()[1:]]
+  random.shuffle(hosts)
+  sorted_gateways = []
+  def PingGateway(gateway):
+    dht = OpenDht(gateway)
+    try:
+      dht.Put('ping', 'pong')
+    except (xmlrpclib.ProtocolError, socket.error):
+      pass
+    else:
+      sorted_gateways.append(gateway)
+  print 'Pinging servers.'
+  for host in hosts:
+    gateway = 'http://%s:5851/' % host
+    threading.Thread(target=PingGateway, args=(gateway,)).start()
+    if sorted_gateways:
+      break
+  while not sorted_gateways:
+    time.sleep(0.01)
+  print 'Found server %s.' % sorted_gateways[0]
+  return sorted_gateways[0]
 
 
 class OpenDht(object):
 
-  def __init__(self, gateway=GATEWAY):
+  def __init__(self, gateway=OASIS_GATEWAY):
     self.server = xmlrpclib.ServerProxy(gateway)
 
   def _EncodeHash(self, value):
